@@ -1,0 +1,95 @@
+<section class="page">
+  <h1 class="page-title">Configuracion</h1>
+  <p class="subtitle">Personaliza los parametros del sistema segun tus necesidades.</p>
+
+  <form class="config-sections" (ngSubmit)="saveConfig()">
+    @for (section of sections; track section) {
+      <div class="config-section">
+        <h2 class="section-title">{{ section }}</h2>
+
+        <div class="config-grid">
+          @for (option of getOptionsBySection(section); track option.id) {
+            <div class="config-item">
+              <div class="config-label">
+                <label [for]="option.id">{{ option.label }}</label>
+                <p class="config-description">{{ option.description }}</p>
+              </div>
+
+              @switch (option.type) {
+                @case ('toggle') {
+                  <input
+                    [id]="option.id"
+                    type="checkbox"
+                    [(ngModel)]="option.value"
+                    [name]="option.id"
+                    class="toggle-input"
+                  />
+                }
+                @case ('password') {
+                  <div class="password-group">
+                    <input
+                      [id]="option.id"
+                      type="password"
+                      placeholder="Nuevo PIN (4-8 dígitos)"
+                      class="input-field"
+                      maxlength="8"
+                      inputmode="numeric"
+                      [(ngModel)]="newPin"
+                      [name]="option.id + '-new'"
+                    />
+                    <input
+                      [id]="option.id + '-confirm'"
+                      type="password"
+                      placeholder="Confirmar PIN"
+                      class="input-field"
+                      maxlength="8"
+                      inputmode="numeric"
+                      [(ngModel)]="confirmPin"
+                      [name]="option.id + '-confirm'"
+                    />
+                  </div>
+                }
+                @case ('select') {
+                  <select
+                    [id]="option.id"
+                    [(ngModel)]="option.value"
+                    (ngModelChange)="onOptionValueChanged(option)"
+                    [name]="option.id"
+                    class="input-field"
+                  >
+                    @for (opt of option.options; track opt.value) {
+                      <option [value]="opt.value">{{ opt.label }}</option>
+                    }
+                  </select>
+                }
+                @case ('number') {
+                  <input
+                    [id]="option.id"
+                    type="number"
+                    [(ngModel)]="option.value"
+                    [name]="option.id"
+                    class="input-field"
+                  />
+                }
+                @case ('text') {
+                  <input
+                    [id]="option.id"
+                    type="text"
+                    [(ngModel)]="option.value"
+                    [name]="option.id"
+                    class="input-field"
+                  />
+                }
+              }
+            </div>
+          }
+        </div>
+      </div>
+    }
+
+    <div class="form-actions">
+      <button type="submit" class="primary-btn">Guardar cambios</button>
+      <small>Los cambios se sincronizaran con el servidor.</small>
+    </div>
+  </form>
+</section>

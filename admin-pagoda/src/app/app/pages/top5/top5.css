@@ -1,0 +1,87 @@
+.date-filters {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.date-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.date-field label {
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+}
+
+.date-field input {
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--background);
+  color: var(--foreground);
+  font-size: 0.875rem;
+  padding: 0.55rem 0.75rem;
+}
+
+.table-shell {
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+thead tr {
+  background: color-mix(in srgb, var(--muted) 40%, transparent);
+  border-bottom: 1px solid var(--border);
+}
+
+th,
+td {
+  font-size: 0.875rem;
+  text-align: left;
+  padding: 0.75rem 1rem;
+}
+
+tbody tr {
+  border-bottom: 1px solid var(--border);
+}
+
+tbody tr:last-child {
+  border-bottom: 0;
+}
+
+tbody tr:hover {
+  background: color-mix(in srgb, var(--muted) 10%, transparent);
+}
+
+.w-24 {
+  width: 6rem;
+}
+
+.w-36 {
+  width: 9rem;
+}
+
+.right {
+  text-align: right;
+}
+
+.muted {
+  color: var(--muted-foreground);
+}
+
+.strong {
+  font-weight: 600;
+}
+
+.table-footnote {
+  margin-top: 1rem;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}

@@ -1,0 +1,110 @@
+<section class="page">
+  <h1 class="page-title">Reporte de Ventas</h1>
+
+  <div class="controls-row">
+    <select [(ngModel)]="dateRange" class="control-input">
+      <option value="Daily">Daily</option>
+      <option value="Weekly">Weekly</option>
+      <option value="Monthly">Monthly</option>
+    </select>
+
+    <button type="button" class="primary-btn" (click)="exportPdf()">
+      <span aria-hidden="true">⤓</span>
+      Exportar PDF
+    </button>
+  </div>
+
+  <p class="ventas-total">Total de Ventas: {{ fmt(totalVentas) }}</p>
+  @if (infoMessage) {
+    <p class="ventas-info">{{ infoMessage }}</p>
+  }
+
+  <div class="summary-grid">
+    <article class="summary-card">
+      <p>Fondo Inicial</p>
+      <strong>{{ fmt(fondoInicial) }}</strong>
+    </article>
+    <article class="summary-card">
+      <p>Total Efectivo</p>
+      <strong>{{ fmt(totalEfectivo) }}</strong>
+    </article>
+    <article class="summary-card">
+      <p>Total Tarjeta Bruto</p>
+      <strong>{{ fmt(totalTarjetaBruto) }}</strong>
+      <small>-3.5% comisión</small>
+    </article>
+    <article class="summary-card">
+      <p>Total Tarjeta Neto</p>
+      <strong>{{ fmt(totalTarjetaNeto) }}</strong>
+    </article>
+  </div>
+
+  <div class="table-shell">
+    <div class="tree-header">
+      <div>Descripción</div>
+      <div class="right">Total Bruto</div>
+      <div class="right">Total Neto</div>
+    </div>
+
+    @for (order of ordersData; track order.id) {
+      <div>
+        <button type="button" class="order-row" (click)="toggleOrder(order.id)">
+          <div class="order-title">
+            <span class="chevron" [class.expanded]="isExpanded(order.id)">▶</span>
+            {{ order.mesa }} Pedido {{ order.pedido }}
+          </div>
+          <div class="right strong">{{ fmt(order.totalBruto) }}</div>
+          <div class="right strong">{{ fmt(order.totalNeto) }}</div>
+        </button>
+
+        @if (isExpanded(order.id)) {
+          @for (dish of order.dishes; track $index) {
+            <div class="tree-row dish-row">
+              <div class="dish-name">{{ dish.nombre }}</div>
+              <div class="right">{{ fmt(dish.precio) }}</div>
+              <div class="right muted">—</div>
+            </div>
+          }
+
+          @if (order.tipoPago === 'efectivo') {
+            <div class="tree-row payment-row">
+              <div class="payment-name"><span class="dot"></span>Efectivo</div>
+              <div class="right strong">{{ fmt(order.totalBruto) }}</div>
+              <div class="right strong">{{ fmt(order.totalNeto) }}</div>
+            </div>
+          }
+
+          @if (order.tipoPago === 'tarjeta') {
+            <div class="tree-row payment-row">
+              <div class="payment-name"><span class="dot muted-dot"></span>Tarjeta <small>(−3.5%)</small></div>
+              <div class="right strong">{{ fmt(order.totalBruto) }}</div>
+              <div class="right strong">{{ fmt(order.totalNeto) }}</div>
+            </div>
+          }
+
+          @if (order.tipoPago === 'mixto') {
+            <div class="tree-row payment-row">
+              <div class="payment-name"><span class="dot"></span>Efectivo</div>
+              <div class="right">{{ fmt(order.efectivoAmount!) }}</div>
+              <div class="right">{{ fmt(order.efectivoAmount!) }}</div>
+            </div>
+            <div class="tree-row payment-row">
+              <div class="payment-name"><span class="dot muted-dot"></span>Tarjeta <small>(−3.5%)</small></div>
+              <div class="right">{{ fmt(order.tarjetaBruto!) }}</div>
+              <div class="right">{{ fmt(order.tarjetaNeto!) }}</div>
+            </div>
+            <div class="tree-row payment-row total-row">
+              <div class="payment-name">Total</div>
+              <div class="right strong">{{ fmt(order.totalBruto) }}</div>
+              <div class="right strong">{{ fmt(order.totalNeto) }}</div>
+            </div>
+          }
+        }
+      </div>
+    }
+
+    @if (!ordersData.length) {
+      <div class="empty-row">Sin pedidos registrados todavía.</div>
+    }
+  </div>
+</section>

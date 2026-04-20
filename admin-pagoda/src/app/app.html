@@ -1,0 +1,34 @@
+@if (isAuthenticated()) {
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <h2>Pagoda</h2>
+      </div>
+
+      <nav class="nav-menu">
+        <a routerLink="/ventas" [routerLinkActiveOptions]="{ exact: true }" routerLinkActive="active">Ventas</a>
+        <a routerLink="/top5" routerLinkActive="active">Top 5</a>
+        <a routerLink="/menu" routerLinkActive="active">Menú</a>
+        <a routerLink="/propinas" routerLinkActive="active">Propinas</a>
+        <a routerLink="/usuarios" routerLinkActive="active">Usuarios</a>
+        <a routerLink="/configuracion" routerLinkActive="active">Configuración</a>
+      </nav>
+
+      <div class="sidebar-footer">
+        <small>{{ displayName() || 'Administrador' }}</small>
+        <button type="button" class="jornada-btn" [disabled]="!jornadaAbierta()" (click)="cerrarJornada()">
+          Cerrar jornada
+        </button>
+        <button type="button" class="logout-btn" (click)="logout()">Cerrar sesion</button>
+      </div>
+    </aside>
+
+    <main class="content-area">
+      <router-outlet />
+    </main>
+  </div>
+} @else {
+  <router-outlet />
+}
+
+<app-toast-container />

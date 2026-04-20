@@ -1,0 +1,99 @@
+<section class="page">
+  <div class="page-head">
+    <div>
+      <h1 class="page-title large">Gestión de Menú</h1>
+      <p class="subtitle">Administra los productos de tu restaurante</p>
+    </div>
+    <button type="button" class="primary-btn" (click)="openAddDialog()">
+      <span aria-hidden="true">+</span>
+      Añadir Platillo
+    </button>
+  </div>
+
+  <div class="filters-row">
+    <input
+      type="search"
+      class="filter-input"
+      [(ngModel)]="searchQuery"
+      placeholder="Buscar platillo..."
+      aria-label="Buscar platillo"
+    />
+
+    <select class="filter-input" [(ngModel)]="selectedCategory" aria-label="Filtrar categoria">
+      <option value="all">Todas las categorias</option>
+      @for (category of categories; track category.id) {
+        <option [value]="category.nombre">{{ category.nombre }}</option>
+      }
+    </select>
+
+    @if (searchQuery || selectedCategory !== 'all') {
+      <button type="button" class="secondary-btn" (click)="clearFilters()">Limpiar</button>
+    }
+  </div>
+
+  <div class="table-shell">
+    <table>
+      <thead>
+        <tr>
+          <th>Nombre</th>
+          <th>Categoría</th>
+          <th>Precio</th>
+          <th class="center">Acciones</th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (product of filteredProducts; track product.id) {
+          <tr>
+            <td>{{ product.nombre }}</td>
+            <td>{{ product.categoria }}</td>
+            <td>${{ product.precio.toFixed(2) }}</td>
+            <td class="center">
+              <button type="button" class="action-btn" title="Editar" (click)="openEditDialog(product)">✎</button>
+              <button type="button" class="action-btn danger" title="Eliminar" (click)="removeProduct(product.id)">🗑</button>
+            </td>
+          </tr>
+        }
+
+        @if (!filteredProducts.length) {
+          <tr>
+            <td colspan="4" class="empty-state">No encontramos platillos con ese filtro.</td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+</section>
+
+@if (showDialog) {
+  <div class="dialog-backdrop" (click)="closeDialog()">
+    <div class="dialog-card" (click)="$event.stopPropagation()">
+      <div class="dialog-head">
+        <h2>{{ editingProductId ? 'Editar Producto' : 'Añadir Nuevo Producto' }}</h2>
+        <button type="button" class="close-btn" (click)="closeDialog()">✕</button>
+      </div>
+
+      <form class="dialog-form" (ngSubmit)="saveProduct()">
+        <label for="nombre">Nombre del Producto</label>
+        <input id="nombre" type="text" [(ngModel)]="form.nombre" name="nombre" required placeholder="Ej: Pad Thai" />
+
+        <label for="precio">Precio (MXN)</label>
+        <input id="precio" type="number" step="0.01" [(ngModel)]="form.precio" name="precio" required placeholder="0.00" />
+
+        <label for="categoria">Categoría</label>
+        <select id="categoria" [(ngModel)]="form.categoriaId" name="categoria" required>
+          @for (category of categories; track category.id) {
+            <option [ngValue]="category.id">{{ category.nombre }}</option>
+          }
+        </select>
+
+        <label for="descripcion">Descripción</label>
+        <input id="descripcion" type="text" [(ngModel)]="form.descripcion" name="descripcion" placeholder="Opcional" />
+
+        <div class="dialog-actions">
+          <button type="button" class="secondary-btn" (click)="closeDialog()">Cancelar</button>
+          <button type="submit" class="primary-btn">{{ editingProductId ? 'Guardar Cambios' : 'Añadir Producto' }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+}

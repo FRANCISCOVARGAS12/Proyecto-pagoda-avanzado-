@@ -1,0 +1,150 @@
+.subtitle {
+  margin-top: -1rem;
+  margin-bottom: 1.25rem;
+  color: var(--muted-foreground);
+}
+
+.config-sections {
+  display: grid;
+  gap: 2rem;
+}
+
+.config-section {
+  display: grid;
+  gap: 1rem;
+}
+
+.section-title {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--foreground);
+  padding-bottom: 0.75rem;
+  border-bottom: 2px solid color-mix(in srgb, var(--primary) 30%, transparent);
+}
+
+.config-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+.config-item {
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  padding: 1rem;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 1.5rem;
+  background: color-mix(in srgb, var(--muted) 5%, transparent);
+}
+
+.config-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.config-label label {
+  font-weight: 500;
+  font-size: 0.95rem;
+}
+
+.config-description {
+  margin: 0;
+  font-size: 0.84rem;
+  color: var(--muted-foreground);
+}
+
+.input-field {
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--background);
+  color: var(--foreground);
+  padding: 0.6rem 0.8rem;
+  font-size: 0.9rem;
+  min-width: 200px;
+}
+
+.input-field:focus {
+  outline: 0;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 20%, transparent);
+}
+
+.toggle-input {
+  width: 44px;
+  height: 24px;
+  cursor: pointer;
+  accent-color: var(--primary);
+}
+
+.password-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 220px;
+}
+
+.form-actions {
+  margin-top: 2rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.primary-btn {
+  border: 0;
+  border-radius: 0.65rem;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  padding: 0.75rem 1.5rem;
+  cursor: pointer;
+  font-weight: 600;
+  width: max-content;
+}
+
+.primary-btn:hover {
+  opacity: 0.92;
+}
+
+.primary-btn:active {
+  opacity: 0.88;
+}
+
+.save-message {
+  margin: 0;
+  color: #16a34a;
+  font-size: 0.86rem;
+}
+
+.save-error {
+  margin: 0;
+  color: var(--destructive);
+  font-size: 0.86rem;
+}
+
+.tag {
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+
+@media (width <= 768px) {
+  .config-item {
+    grid-template-columns: 1fr;
+  }
+
+  .input-field {
+    min-width: auto;
+  }
+
+  .password-group {
+    min-width: auto;
+  }
+
+  .config-sections {
+    gap: 1.5rem;
+  }
+}

@@ -1,0 +1,45 @@
+<section class="page">
+  <h1 class="page-title">Top 5 Platillos Más Vendidos</h1>
+
+  <div class="date-filters">
+    <div class="date-field">
+      <label for="startDate">Start Date</label>
+      <input id="startDate" type="date" [(ngModel)]="startDate" />
+    </div>
+    <div class="date-field">
+      <label for="endDate">End Date</label>
+      <input id="endDate" type="date" [(ngModel)]="endDate" />
+    </div>
+  </div>
+
+  <div class="table-shell">
+    <table>
+      <thead>
+        <tr>
+          <th class="w-24">Posición</th>
+          <th>Nombre del Platillo</th>
+          <th>Categoría</th>
+          <th class="right w-36">Cantidad Vendida</th>
+          <th class="right w-36">Total Generado</th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (product of topProducts; track product.rank) {
+          <tr>
+            <td class="muted">#{{ product.rank }}</td>
+            <td>{{ product.nombre }}</td>
+            <td>{{ product.categoria }}</td>
+            <td class="right">{{ product.cantidad }}</td>
+            <td class="right strong">{{ fmt(product.total) }}</td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+
+  @if (infoMessage) {
+    <p class="table-footnote">{{ infoMessage }}</p>
+  }
+
+  <p class="table-footnote">Ordenado por Total Generado · de mayor a menor</p>
+</section>

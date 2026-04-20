@@ -1,0 +1,57 @@
+.large {
+  font-size: 1.95rem;
+}
+
+.date-filters {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  margin-bottom: 3rem;
+}
+
+.date-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.date-field input {
+  border: 1px solid var(--border);
+  border-radius: 0.65rem;
+  background: var(--card);
+  color: var(--foreground);
+  padding: 0.6rem 0.9rem;
+}
+
+.tip-wrapper {
+  display: flex;
+  justify-content: center;
+  padding-block: 4rem;
+}
+
+.tip-card {
+  width: min(100%, 850px);
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  background: var(--card);
+  text-align: center;
+  padding: 4rem 2rem;
+}
+
+.tip-card p {
+  margin: 0 0 1.25rem;
+  color: var(--muted-foreground);
+  font-size: 1.8rem;
+}
+
+.tip-card strong {
+  font-size: clamp(2.5rem, 7vw, 4.5rem);
+  font-weight: 700;
+}
+
+.tip-card small {
+  display: block;
+  margin-top: 1rem;
+  color: var(--muted-foreground);
+  font-size: 0.9rem;
+}

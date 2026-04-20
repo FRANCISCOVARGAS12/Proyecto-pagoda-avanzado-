@@ -1,0 +1,83 @@
+<section class="page">
+  <div class="page-head">
+    <div>
+      <h1 class="page-title">Usuarios</h1>
+      <p class="subtitle">Base inicial para administrar accesos del personal.</p>
+    </div>
+
+    <button type="button" class="primary-btn" (click)="openDialog()">
+      <span aria-hidden="true">+</span>
+      Agregar nuevo usuario
+    </button>
+  </div>
+
+  <div class="table-shell">
+    <table>
+      <thead>
+        <tr>
+          <th>Nombre</th>
+          <th>Rol</th>
+          <th>Estado</th>
+          <th class="actions-col">Acciones</th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (user of users; track user.id) {
+          <tr>
+            <td>{{ user.nombre }}</td>
+            <td>{{ user.rol }}</td>
+            <td>
+              <span
+                class="badge"
+                [class.inactivo]="user.estado === 'inactivo'"
+              >
+                {{ user.estado }}
+              </span>
+            </td>
+            <td class="actions-col">
+              <button
+                type="button"
+                class="action-btn danger"
+                [disabled]="!user.activo"
+                (click)="deactivateUser(user.id)"
+              >
+                Eliminar
+              </button>
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+</section>
+
+@if (showDialog) {
+  <div class="dialog-backdrop" (click)="closeDialog()">
+    <div class="dialog-card" (click)="$event.stopPropagation()">
+      <div class="dialog-head">
+        <h2>Agregar nuevo usuario</h2>
+        <button type="button" class="close-btn" (click)="closeDialog()">✕</button>
+      </div>
+
+      <form class="dialog-form" (ngSubmit)="addUser()">
+        <label for="nombre">Nombre</label>
+        <input id="nombre" type="text" [(ngModel)]="form.nombre" name="nombre" placeholder="Ej: Ana López" />
+
+        <label for="rol">Rol</label>
+        <select id="rol" [(ngModel)]="form.rolId" name="rol" required>
+          @for (rol of roles; track rol.id) {
+            <option [ngValue]="rol.id">{{ rol.nombre }}</option>
+          }
+        </select>
+
+        <label for="pin">PIN (4-8 dígitos)</label>
+        <input id="pin" type="password" maxlength="8" [(ngModel)]="form.pin" name="pin" placeholder="Ej: 1234" inputmode="numeric" required />
+
+        <div class="dialog-actions">
+          <button type="button" class="secondary-btn" (click)="closeDialog()">Cancelar</button>
+          <button type="submit" class="primary-btn">Guardar usuario</button>
+        </div>
+      </form>
+    </div>
+  </div>
+}

@@ -1,0 +1,38 @@
+<section class="login-page">
+  <div class="login-card">
+    <h1>Pagoda</h1>
+    <p>Inicia sesion con tu usuario del backend.</p>
+
+    <form class="login-form" (ngSubmit)="submit()">
+      <label for="name">Nombre</label>
+      <input
+        id="name"
+        type="text"
+        name="name"
+        [(ngModel)]="name"
+        placeholder="Ej: Charbel"
+        autocomplete="username"
+        required
+      />
+
+      <label for="pin">PIN</label>
+      <input
+        id="pin"
+        type="password"
+        name="pin"
+        [(ngModel)]="pin"
+        placeholder="4 a 8 digitos"
+        minlength="4"
+        maxlength="8"
+        pattern="[0-9]{4,8}"
+        inputmode="numeric"
+        autocomplete="current-password"
+        required
+      />
+
+      <button type="submit">Entrar</button>
+    </form>
+
+    <small>Usuario demo inicial: Charbel / 1234</small>
+  </div>
+</section>
