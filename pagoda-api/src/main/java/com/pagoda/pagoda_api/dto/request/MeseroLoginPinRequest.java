@@ -7,12 +7,8 @@ import lombok.Setter;
 
 @Getter
 @Setter
-public class LoginPinRequest {
-    @NotBlank(message = "El nombre es obligatorio")
-    private String nombre;
-
+public class MeseroLoginPinRequest {
     @NotBlank(message = "El PIN es obligatorio")
-    @Pattern(regexp = "^\\d{6}$", message = "El PIN debe tener exactamente 6 dígitos")
+    @Pattern(regexp = "^\\d{6}$", message = "El PIN debe contener exactamente 6 dígitos")
     private String pin;
 }
-

@@ -2,10 +2,40 @@
   <h1 class="page-title">Reporte de Ventas</h1>
 
   <div class="controls-row">
-    <select [(ngModel)]="dateRange" class="control-input">
-      <option value="Daily">Daily</option>
-      <option value="Weekly">Weekly</option>
-      <option value="Monthly">Monthly</option>
+    <select
+      [(ngModel)]="rangePreset"
+      (ngModelChange)="onPresetChange()"
+      class="control-input"
+    >
+      <option value="weekly">Semanal</option>
+      <option value="monthly">Mensual</option>
+      <option value="custom">Personalizado</option>
+    </select>
+
+    <input
+      type="date"
+      [(ngModel)]="startDate"
+      (change)="onDateRangeChange()"
+      class="control-input"
+    />
+
+    <input
+      type="date"
+      [(ngModel)]="endDate"
+      (change)="onDateRangeChange()"
+      class="control-input"
+    />
+
+    <select
+      [(ngModel)]="selectedJornadaId"
+      (ngModelChange)="onJornadaChange()"
+      class="control-input"
+      [disabled]="!jornadasFiltradas.length"
+    >
+      <option [ngValue]="'all'">Todas las jornadas del rango</option>
+      @for (jornada of jornadasFiltradas; track jornada.id) {
+        <option [ngValue]="jornada.id">{{ jornadaLabel(jornada) }}</option>
+      }
     </select>
 
     <button type="button" class="primary-btn" (click)="exportPdf()">
@@ -14,6 +44,7 @@
     </button>
   </div>
 
+  <p class="ventas-scope">Rango: {{ rangeLabel() }} · {{ selectedScopeLabel() }}</p>
   <p class="ventas-total">Total de Ventas: {{ fmt(totalVentas) }}</p>
   @if (infoMessage) {
     <p class="ventas-info">{{ infoMessage }}</p>
@@ -51,7 +82,7 @@
         <button type="button" class="order-row" (click)="toggleOrder(order.id)">
           <div class="order-title">
             <span class="chevron" [class.expanded]="isExpanded(order.id)">▶</span>
-            {{ order.mesa }} Pedido {{ order.pedido }}
+            {{ order.mesa }} Pedido {{ order.pedido }} · {{ order.jornadaFecha }}
           </div>
           <div class="right strong">{{ fmt(order.totalBruto) }}</div>
           <div class="right strong">{{ fmt(order.totalNeto) }}</div>

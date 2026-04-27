@@ -5,7 +5,6 @@
 INSERT INTO catalogos.roles (nombre, descripcion) VALUES
                                                       ('ADMIN', 'Acceso total al sistema incluyendo panel administrativo'),
                                                       ('MESERO', 'Acceso a la app móvil para gestión de mesas y pedidos')
-
     ON CONFLICT DO NOTHING;
 
 INSERT INTO catalogos.estados_mesa (nombre) VALUES
@@ -63,14 +62,6 @@ INSERT INTO operacion.mesas (numero, capacidad, estado_id) VALUES
                                                                (2, 6, (SELECT id FROM catalogos.estados_mesa WHERE nombre = 'LIBRE')),
                                                                (3, 6, (SELECT id FROM catalogos.estados_mesa WHERE nombre = 'LIBRE')),
                                                                (4, 6, (SELECT id FROM catalogos.estados_mesa WHERE nombre = 'LIBRE'))
-    ON CONFLICT DO NOTHING;
-
--- PIN: 1234
-INSERT INTO operacion.usuarios (nombre, rol_id, pin_hash, activo) VALUES
-    ('Charbel',
-     (SELECT id FROM catalogos.roles WHERE nombre = 'ADMIN'),
-     '$2a$10$Fw1bwBNeifryScbJSM/JjOlip5hdLWTWyAfgfypPpC2pMtyxY.cOW',
-     true)
     ON CONFLICT DO NOTHING;
 
 -- ==========================================

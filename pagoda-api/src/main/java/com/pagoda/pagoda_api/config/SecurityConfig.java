@@ -32,7 +32,7 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                        .requestMatchers("/api/admin/login", "/api/health").permitAll()
+                        .requestMatchers("/api/admin/login", "/api/mesero/login", "/api/auth/check-setup", "/api/auth/register-first-admin", "/api/health").permitAll()
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(bearerTokenFilter, UsernamePasswordAuthenticationFilter.class);

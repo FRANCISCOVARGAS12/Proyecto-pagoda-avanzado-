@@ -48,6 +48,7 @@ export CORS_ALLOWED_ORIGINS="http://localhost:4200,http://localhost:3000"
 
 - `POST /api/admin/login`
 - `GET /api/admin/perfil`
+- `POST /api/mesero/login`
 
 `POST /api/admin/login` request:
 
@@ -109,6 +110,7 @@ export CORS_ALLOWED_ORIGINS="http://localhost:4200,http://localhost:3000"
 ### Ventas
 
 - `GET /api/ventas/activas`
+- `GET /api/ventas/jornada/{jornadaId}`
 - `GET /api/ventas/{id}`
 - `POST /api/ventas/abrir`
 - `PUT /api/ventas/{id}/cerrar`
@@ -148,4 +150,3 @@ cd /home/paquinhodevv/Escritorio/proyectos/Pagoda/pagoda-api
 cd /home/paquinhodevv/Escritorio/proyectos/Pagoda/pagoda-api
 ./mvnw -q test
 ```
-

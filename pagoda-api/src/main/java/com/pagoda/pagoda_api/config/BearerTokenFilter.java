@@ -26,6 +26,9 @@ public class BearerTokenFilter extends OncePerRequestFilter {
 
     private static final List<String> PUBLIC_PATHS = List.of(
             "/api/admin/login",
+            "/api/mesero/login",
+            "/api/auth/check-setup",
+            "/api/auth/register-first-admin",
             "/api/health"
     );
 

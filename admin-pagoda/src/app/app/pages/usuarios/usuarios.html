@@ -52,30 +52,32 @@
 </section>
 
 @if (showDialog) {
-  <div class="dialog-backdrop" (click)="closeDialog()">
+  <div class="dialog-backdrop" (click)="!isSaving && closeDialog()">
     <div class="dialog-card" (click)="$event.stopPropagation()">
       <div class="dialog-head">
         <h2>Agregar nuevo usuario</h2>
-        <button type="button" class="close-btn" (click)="closeDialog()">✕</button>
+        <button type="button" class="close-btn" [disabled]="isSaving()" (click)="closeDialog()">✕</button>
       </div>
 
       <form class="dialog-form" (ngSubmit)="addUser()">
         <label for="nombre">Nombre</label>
-        <input id="nombre" type="text" [(ngModel)]="form.nombre" name="nombre" placeholder="Ej: Ana López" />
+        <input id="nombre" type="text" [(ngModel)]="form.nombre" name="nombre" placeholder="Ej: Ana López" [disabled]="isSaving()" />
 
         <label for="rol">Rol</label>
-        <select id="rol" [(ngModel)]="form.rolId" name="rol" required>
+        <select id="rol" [(ngModel)]="form.rolId" name="rol" required [disabled]="isSaving()">
           @for (rol of roles; track rol.id) {
             <option [ngValue]="rol.id">{{ rol.nombre }}</option>
           }
         </select>
 
-        <label for="pin">PIN (4-8 dígitos)</label>
-        <input id="pin" type="password" maxlength="8" [(ngModel)]="form.pin" name="pin" placeholder="Ej: 1234" inputmode="numeric" required />
+        <label for="pin">PIN (6 dígitos)</label>
+        <input id="pin" type="password" maxlength="6" minlength="6" pattern="[0-9]{6}" [(ngModel)]="form.pin" name="pin" placeholder="Ej: 123456" inputmode="numeric" required [disabled]="isSaving()" />
 
         <div class="dialog-actions">
-          <button type="button" class="secondary-btn" (click)="closeDialog()">Cancelar</button>
-          <button type="submit" class="primary-btn">Guardar usuario</button>
+          <button type="button" class="secondary-btn" [disabled]="isSaving()" (click)="closeDialog()">Cancelar</button>
+          <button type="submit" class="primary-btn" [disabled]="isSaving()">
+            {{ isSaving() ? 'Guardando...' : 'Guardar usuario' }}
+          </button>
         </div>
       </form>
     </div>

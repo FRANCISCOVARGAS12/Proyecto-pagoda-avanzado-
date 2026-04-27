@@ -1,4 +1,4 @@
-import { Component, OnInit } from '@angular/core';
+import { ChangeDetectorRef, Component, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ApiClientService } from '../../core/api/api-client.service';
 import { ToastService } from '../../core/ui/toast.service';
@@ -39,6 +39,7 @@ export class Usuarios implements OnInit {
   protected roles: RolApi[] = [];
   protected users: UserRow[] = [];
   protected showDialog = false;
+  protected isSaving = signal(false);
   protected form: UserForm = {
     nombre: '',
     rolId: null,
@@ -48,6 +49,7 @@ export class Usuarios implements OnInit {
   constructor(
     private readonly apiClient: ApiClientService,
     private readonly toastService: ToastService,
+    private readonly cdr: ChangeDetectorRef,
   ) {}
 
   async ngOnInit(): Promise<void> {
@@ -65,16 +67,21 @@ export class Usuarios implements OnInit {
 
   protected closeDialog(): void {
     this.showDialog = false;
+    this.isSaving.set(false);
   }
 
   protected async addUser(): Promise<void> {
+    if (this.isSaving()) {
+      return;
+    }
     const pin = this.form.pin.trim();
 
-    if (!this.form.nombre.trim() || this.form.rolId === null || !/^\d{4,8}$/.test(pin)) {
-      this.toastService.error('Nombre, rol y PIN de 4 a 8 digitos son obligatorios.');
+    if (!this.form.nombre.trim() || this.form.rolId === null || !/^\d{6}$/.test(pin)) {
+      this.toastService.error('Nombre, rol y PIN de 6 digitos son obligatorios.');
       return;
     }
 
+    this.isSaving.set(true);
     try {
       await this.apiClient.post<UsuarioApi, { nombre: string; rolId: number; pin: string }>(
         '/api/operacion/usuarios',
@@ -85,13 +92,15 @@ export class Usuarios implements OnInit {
         },
       );
 
+      this.toastService.success('Usuario creado correctamente.');
       await this.loadUsers();
       this.closeDialog();
-      this.toastService.success('Usuario creado correctamente.');
     } catch (error) {
       const message =
         error instanceof Error && error.message ? error.message : 'No se pudo crear el usuario.';
       this.toastService.error(message);
+    } finally {
+      this.isSaving.set(false);
     }
   }
 
@@ -124,26 +133,42 @@ export class Usuarios implements OnInit {
 
       this.roles = roles;
       this.users = usuarios.map((usuario) => this.mapUser(usuario));
+      this.cdr.detectChanges();
     } catch (error) {
       const message =
         error instanceof Error && error.message
           ? error.message
           : 'No se pudieron cargar usuarios y roles.';
       this.toastService.error(message);
+      this.cdr.detectChanges();
     }
   }
 
   private async loadUsers(): Promise<void> {
-    const usuarios = await this.apiClient.get<UsuarioApi[]>('/api/operacion/usuarios');
-    this.users = usuarios.map((usuario) => this.mapUser(usuario));
+    try {
+      const usuarios = await this.apiClient.get<UsuarioApi[]>('/api/operacion/usuarios');
+      this.users = usuarios
+        .map((usuario) => this.mapUser(usuario))
+        .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' }));
+      this.cdr.detectChanges();
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : 'No se pudieron cargar los usuarios.';
+      this.toastService.error(message);
+      this.cdr.detectChanges();
+    }
   }
 
   private mapUser(usuario: UsuarioApi): UserRow {
     const activo = Boolean(usuario.activo);
+    const nombre = (usuario.nombre ?? '').toString().trim();
+    const rol = (usuario.rol ?? '').toString().trim();
     return {
       id: usuario.id,
-      nombre: usuario.nombre,
-      rol: usuario.rol,
+      nombre: nombre || 'Sin nombre',
+      rol: rol || 'Sin rol',
       estado: activo ? 'activo' : 'inactivo',
       activo,
     };

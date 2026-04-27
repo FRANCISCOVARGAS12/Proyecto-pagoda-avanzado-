@@ -1,7 +1,7 @@
 import { Injectable, signal } from '@angular/core';
 import { ApiClientService } from '../api/api-client.service';
 
-interface LoginResponse {
+export interface LoginResponse {
   usuarioId: number;
   nombre: string;
   rol: string;
@@ -12,6 +12,7 @@ const AUTH_KEY = 'pagoda-auth';
 const USER_KEY = 'pagoda-user';
 const TOKEN_KEY = 'pagoda-token';
 const USER_ID_KEY = 'pagoda-user-id';
+const ROLE_KEY = 'pagoda-role';
 
 @Injectable({ providedIn: 'root' })
 export class AuthService {
@@ -43,11 +44,7 @@ export class AuthService {
         },
       );
 
-      this.authenticatedSignal.set(true);
-      this.displayNameSignal.set(response.nombre);
-      this.userIdSignal.set(response.usuarioId);
-      this.roleSignal.set(response.rol ?? '');
-      this.saveSession(response);
+      this.setSession(response);
 
       return { ok: true, message: 'Login exitoso.' };
     } catch (error) {
@@ -65,11 +62,20 @@ export class AuthService {
     this.clearSession();
   }
 
+  setSession(login: LoginResponse): void {
+    this.authenticatedSignal.set(true);
+    this.displayNameSignal.set(login.nombre);
+    this.userIdSignal.set(login.usuarioId);
+    this.roleSignal.set(login.rol ?? '');
+    this.saveSession(login);
+  }
+
   private restoreSession(): void {
     const hasSession = localStorage.getItem(AUTH_KEY) === '1';
     const savedName = localStorage.getItem(USER_KEY) ?? '';
     const savedToken = localStorage.getItem(TOKEN_KEY) ?? '';
     const savedUserId = Number(localStorage.getItem(USER_ID_KEY));
+    const savedRole = localStorage.getItem(ROLE_KEY) ?? '';
 
     if (!hasSession || !savedToken || !savedName || Number.isNaN(savedUserId)) {
       this.authenticatedSignal.set(false);
@@ -82,6 +88,7 @@ export class AuthService {
     this.authenticatedSignal.set(true);
     this.displayNameSignal.set(savedName);
     this.userIdSignal.set(savedUserId);
+    this.roleSignal.set(savedRole);
   }
 
   private saveSession(login: LoginResponse): void {
@@ -89,6 +96,7 @@ export class AuthService {
     localStorage.setItem(USER_KEY, login.nombre);
     localStorage.setItem(TOKEN_KEY, login.token);
     localStorage.setItem(USER_ID_KEY, `${login.usuarioId}`);
+    localStorage.setItem(ROLE_KEY, login.rol ?? '');
   }
 
   private clearSession(): void {
@@ -96,5 +104,6 @@ export class AuthService {
     localStorage.removeItem(USER_KEY);
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_ID_KEY);
+    localStorage.removeItem(ROLE_KEY);
   }
 }

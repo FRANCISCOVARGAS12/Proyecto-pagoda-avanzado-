@@ -22,6 +22,11 @@ public class VentaController {
         return ResponseEntity.ok(ApiResponse.ok("Ventas en curso obtenidas", ventaService.listarActivas()));
     }
 
+    @GetMapping("/jornada/{jornadaId}")
+    public ResponseEntity<ApiResponse<List<Venta>>> listarPorJornada(@PathVariable Integer jornadaId) {
+        return ResponseEntity.ok(ApiResponse.ok("Ventas de la jornada obtenidas", ventaService.listarPorJornada(jornadaId)));
+    }
+
     @GetMapping("/{id}")
     public ResponseEntity<ApiResponse<Venta>> obtenerPorId(@PathVariable Integer id) {
         return ResponseEntity.ok(ApiResponse.ok("Venta obtenida", ventaService.obtenerPorId(id)));
@@ -38,4 +43,3 @@ public class VentaController {
         return ResponseEntity.ok(ApiResponse.ok("Venta cerrada correctamente", ventaService.cerrar(id)));
     }
 }
-

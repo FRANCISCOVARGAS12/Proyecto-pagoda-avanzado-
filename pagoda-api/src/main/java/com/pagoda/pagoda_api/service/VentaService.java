@@ -16,9 +16,14 @@ import java.util.List;
 public class VentaService {
 
     private final VentaRepository ventaRepository;
+    private final JornadaService jornadaService;
 
     public List<Venta> listarActivas() {
         return ventaRepository.findByFechaCierreIsNull();
+    }
+
+    public List<Venta> listarPorJornada(Integer jornadaId) {
+        return ventaRepository.findByJornadaIdOrderByFechaCreacionDesc(jornadaId);
     }
 
     public Venta obtenerPorId(Integer id) {
@@ -27,6 +32,17 @@ public class VentaService {
     }
 
     public Venta abrir(Venta venta) {
+        if (venta.getMesa() == null || venta.getMesa().getId() == null) {
+            throw new PagodaException(ErrorCode.MESA_NO_ENCONTRADA);
+        }
+        if (venta.getUsuario() == null || venta.getUsuario().getId() == null) {
+            throw new PagodaException(ErrorCode.USUARIO_NO_ENCONTRADO);
+        }
+        if (ventaRepository.existsByMesaIdAndFechaCierreIsNull(venta.getMesa().getId())) {
+            throw new PagodaException(ErrorCode.MESA_OCUPADA);
+        }
+
+        venta.setJornada(jornadaService.asegurarJornadaActiva(venta.getUsuario()));
         venta.setFechaCreacion(LocalDateTime.now());
         venta.setFechaCierre(null);
         venta.setTotalCuenta(venta.getTotalCuenta() == null ? BigDecimal.ZERO : venta.getTotalCuenta());
@@ -42,4 +58,3 @@ public class VentaService {
         return ventaRepository.save(venta);
     }
 }
-

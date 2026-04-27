@@ -1,38 +1,77 @@
 <section class="login-page">
   <div class="login-card">
     <h1>Pagoda</h1>
-    <p>Inicia sesion con tu usuario del backend.</p>
+    
+    @if (isLoading()) {
+      <p>Verificando estado del sistema...</p>
+    } @else if (needsSetup()) {
+      <p>Registra el primer administrador.</p>
+      <form class="login-form" (ngSubmit)="submit()">
+        <label for="name">Nombre del Administrador</label>
+        <input
+          id="name"
+          type="text"
+          name="name"
+          [(ngModel)]="name"
+          placeholder="Ej: Juan García"
+          [disabled]="isSubmitting()"
+          required
+        />
 
-    <form class="login-form" (ngSubmit)="submit()">
-      <label for="name">Nombre</label>
-      <input
-        id="name"
-        type="text"
-        name="name"
-        [(ngModel)]="name"
-        placeholder="Ej: Charbel"
-        autocomplete="username"
-        required
-      />
+        <label for="pin">PIN (6 dígitos)</label>
+        <input
+          id="pin"
+          type="password"
+          name="pin"
+          [(ngModel)]="pin"
+          placeholder="6 digitos"
+          minlength="6"
+          maxlength="6"
+          pattern="[0-9]{6}"
+          inputmode="numeric"
+          [disabled]="isSubmitting()"
+          required
+        />
 
-      <label for="pin">PIN</label>
-      <input
-        id="pin"
-        type="password"
-        name="pin"
-        [(ngModel)]="pin"
-        placeholder="4 a 8 digitos"
-        minlength="4"
-        maxlength="8"
-        pattern="[0-9]{4,8}"
-        inputmode="numeric"
-        autocomplete="current-password"
-        required
-      />
+        <button type="submit" [disabled]="isSubmitting()">
+          {{ isSubmitting() ? 'Registrando...' : 'Registrar y Entrar' }}
+        </button>
+      </form>
+    } @else {
+      <p>Inicia sesion con tu usuario del backend.</p>
+      <form class="login-form" (ngSubmit)="submit()">
+        <label for="name">Nombre</label>
+        <input
+          id="name"
+          type="text"
+          name="name"
+          [(ngModel)]="name"
+          placeholder="Ej: Charbel"
+          autocomplete="username"
+          [disabled]="isSubmitting()"
+          required
+        />
 
-      <button type="submit">Entrar</button>
-    </form>
+        <label for="pin">PIN</label>
+        <input
+          id="pin"
+          type="password"
+          name="pin"
+          [(ngModel)]="pin"
+          placeholder="6 digitos"
+          minlength="6"
+          maxlength="6"
+          pattern="[0-9]{6}"
+          inputmode="numeric"
+          autocomplete="current-password"
+          [disabled]="isSubmitting()"
+          required
+        />
 
-    <small>Usuario demo inicial: Charbel / 1234</small>
+        <button type="submit" [disabled]="isSubmitting()">
+          {{ isSubmitting() ? 'Entrando...' : 'Entrar' }}
+        </button>
+      </form>
+    }
   </div>
 </section>

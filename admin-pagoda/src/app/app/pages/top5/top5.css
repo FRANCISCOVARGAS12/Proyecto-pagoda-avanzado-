@@ -1,8 +1,18 @@
 .date-filters {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 1.5rem;
-  margin-bottom: 2rem;
+  margin-bottom: 1rem;
+}
+
+.control-input {
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--background);
+  color: var(--foreground);
+  font-size: 0.875rem;
+  padding: 0.55rem 0.75rem;
 }
 
 .date-field {
@@ -14,6 +24,12 @@
 .date-field label {
   color: var(--muted-foreground);
   font-size: 0.875rem;
+}
+
+.range-caption {
+  margin: 0 0 1rem;
+  color: var(--muted-foreground);
+  font-size: 0.85rem;
 }
 
 .date-field input {

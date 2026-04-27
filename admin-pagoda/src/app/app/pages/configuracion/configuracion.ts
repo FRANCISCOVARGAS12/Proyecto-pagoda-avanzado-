@@ -52,7 +52,7 @@ export class Configuracion implements OnInit {
     {
       id: 'change-password',
       label: 'Cambiar PIN de acceso',
-      description: 'Tu PIN actual de 4 dígitos para acceder al sistema',
+      description: 'Tu PIN actual de 6 dígitos para acceder al sistema',
       type: 'password',
       section: 'Cuenta y Acceso',
     },
@@ -321,8 +321,8 @@ export class Configuracion implements OnInit {
       return true;
     }
 
-    if (!/^\d{4,8}$/.test(pin)) {
-      this.toastService.error('El nuevo PIN debe tener entre 4 y 8 dígitos.');
+    if (!/^\d{6}$/.test(pin)) {
+      this.toastService.error('El nuevo PIN debe tener exactamente 6 dígitos.');
       return false;
     }
 

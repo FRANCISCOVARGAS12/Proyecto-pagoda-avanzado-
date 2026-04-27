@@ -5,8 +5,23 @@
 .date-filters {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 1.5rem;
-  margin-bottom: 3rem;
+  margin-bottom: 1.25rem;
+}
+
+.control-input {
+  border: 1px solid var(--border);
+  border-radius: 0.65rem;
+  background: var(--card);
+  color: var(--foreground);
+  padding: 0.6rem 0.9rem;
+}
+
+.range-caption {
+  margin: 0 0 1.2rem;
+  color: var(--muted-foreground);
+  font-size: 0.88rem;
 }
 
 .date-field {

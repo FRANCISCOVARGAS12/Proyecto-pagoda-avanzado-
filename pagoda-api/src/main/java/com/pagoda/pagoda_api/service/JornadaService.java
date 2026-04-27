@@ -1,12 +1,14 @@
 package com.pagoda.pagoda_api.service;
 
 import com.pagoda.pagoda_api.entity.operacion.Jornada;
+import com.pagoda.pagoda_api.entity.operacion.Usuario;
 import com.pagoda.pagoda_api.exception.ErrorCode;
 import com.pagoda.pagoda_api.exception.PagodaException;
 import com.pagoda.pagoda_api.repository.operacion.JornadaRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -54,5 +56,29 @@ public class JornadaService {
         jornada.setHoraCierre(LocalDateTime.now());
         return jornadaRepository.save(jornada);
     }
-}
 
+    public Jornada asegurarJornadaActiva(Usuario usuarioApertura) {
+        LocalDate hoy = LocalDate.now();
+        Optional<Jornada> abierta = obtenerJornadaAbierta();
+
+        if (abierta.isPresent()) {
+            Jornada jornadaAbierta = abierta.get();
+            if (hoy.equals(jornadaAbierta.getFecha())) {
+                return jornadaAbierta;
+            }
+            jornadaAbierta.setEstado(ESTADO_CERRADA);
+            jornadaAbierta.setHoraCierre(LocalDateTime.now());
+            jornadaRepository.save(jornadaAbierta);
+        }
+
+        Jornada nueva = Jornada.builder()
+                .fecha(hoy)
+                .fondoCaja(BigDecimal.ZERO)
+                .horaApertura(LocalDateTime.now())
+                .horaCierre(null)
+                .estado(ESTADO_ABIERTA)
+                .usuarioApertura(usuarioApertura)
+                .build();
+        return jornadaRepository.save(nueva);
+    }
+}

@@ -1,6 +1,7 @@
 package com.pagoda.pagoda_api.service;
 
 import com.pagoda.pagoda_api.dto.response.LoginResponse;
+import com.pagoda.pagoda_api.entity.operacion.Jornada;
 import com.pagoda.pagoda_api.entity.catalogos.Rol;
 import com.pagoda.pagoda_api.entity.operacion.Usuario;
 import com.pagoda.pagoda_api.exception.ErrorCode;
@@ -13,6 +14,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -24,6 +26,7 @@ public class AdminAuthService {
     private final UsuarioRepository usuarioRepository;
     private final RolRepository rolRepository;
     private final PasswordEncoder passwordEncoder;
+    private final JornadaService jornadaService;
     private final ConcurrentHashMap<String, TokenSession> tokenSessions = new ConcurrentHashMap<>();
 
     private static final long TOKEN_HOURS = 12;
@@ -36,15 +39,31 @@ public class AdminAuthService {
             throw new PagodaException(ErrorCode.PIN_INCORRECTO);
         }
 
-        String token = UUID.randomUUID().toString();
-        tokenSessions.put(token, new TokenSession(usuario.getId(), Instant.now().plus(TOKEN_HOURS, ChronoUnit.HOURS)));
+        return crearSesion(usuario);
+    }
 
-        return LoginResponse.builder()
-                .usuarioId(usuario.getId())
-                .nombre(usuario.getNombre())
-                .rol(usuario.getRol() == null ? null : usuario.getRol().getNombre())
-                .token(token)
-                .build();
+    public LoginResponse loginMeseroConPin(String pin) {
+        Rol meseroRol = rolRepository.findByNombre("MESERO")
+                .orElseThrow(() -> new PagodaException(ErrorCode.ROL_NO_ENCONTRADO));
+
+        List<Usuario> meserosActivos = usuarioRepository.findByRolIdAndActivoTrueOrderByIdDesc(meseroRol.getId());
+        List<Usuario> coincidencias = meserosActivos.stream()
+                .filter(candidato -> passwordEncoder.matches(pin, candidato.getPinHash()))
+                .toList();
+        if (coincidencias.isEmpty()) {
+            throw new PagodaException(ErrorCode.PIN_INCORRECTO);
+        }
+        if (coincidencias.size() > 1) {
+            throw new PagodaException(ErrorCode.PIN_DUPLICADO);
+        }
+        Usuario usuario = coincidencias.getFirst();
+
+        Jornada jornadaActiva = jornadaService.asegurarJornadaActiva(usuario);
+        if (jornadaActiva == null) {
+            throw new PagodaException(ErrorCode.ERROR_INTERNO);
+        }
+
+        return crearSesion(usuario);
     }
 
     public Optional<Usuario> obtenerUsuarioPorToken(String token) {
@@ -77,5 +96,17 @@ public class AdminAuthService {
     }
 
     private record TokenSession(Integer userId, Instant expiresAt) {
+    }
+
+    private LoginResponse crearSesion(Usuario usuario) {
+        String token = UUID.randomUUID().toString();
+        tokenSessions.put(token, new TokenSession(usuario.getId(), Instant.now().plus(TOKEN_HOURS, ChronoUnit.HOURS)));
+
+        return LoginResponse.builder()
+                .usuarioId(usuario.getId())
+                .nombre(usuario.getNombre())
+                .rol(usuario.getRol() == null ? null : usuario.getRol().getNombre())
+                .token(token)
+                .build();
     }
 }

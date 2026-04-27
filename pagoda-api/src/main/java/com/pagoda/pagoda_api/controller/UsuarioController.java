@@ -45,6 +45,9 @@ public class UsuarioController {
     public ResponseEntity<ApiResponse<UsuarioResponse>> crear(@Valid @RequestBody UsuarioCreateRequest request) {
         Rol rol = rolRepository.findById(request.getRolId())
                 .orElseThrow(() -> new PagodaException(ErrorCode.ROL_NO_ENCONTRADO));
+        if ("MESERO".equalsIgnoreCase(rol.getNombre())) {
+            usuarioService.validarPinUnicoEntreMeserosActivos(request.getPin(), rol.getId(), null);
+        }
 
         Usuario usuario = Usuario.builder()
                 .nombre(request.getNombre())
@@ -62,6 +65,9 @@ public class UsuarioController {
     public ResponseEntity<ApiResponse<UsuarioResponse>> actualizar(@PathVariable Integer id, @Valid @RequestBody UsuarioUpdateRequest request) {
         Rol rol = rolRepository.findById(request.getRolId())
                 .orElseThrow(() -> new PagodaException(ErrorCode.ROL_NO_ENCONTRADO));
+        if (request.getPin() != null && "MESERO".equalsIgnoreCase(rol.getNombre())) {
+            usuarioService.validarPinUnicoEntreMeserosActivos(request.getPin(), rol.getId(), id);
+        }
 
         Usuario usuario = Usuario.builder()
                 .nombre(request.getNombre())
@@ -89,5 +95,4 @@ public class UsuarioController {
                 .build();
     }
 }
-
 

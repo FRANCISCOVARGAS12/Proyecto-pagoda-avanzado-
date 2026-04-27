@@ -1,7 +1,9 @@
 import { Component, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ApiClientService } from '../../core/api/api-client.service';
-import { JornadaService } from '../../core/jornada/jornada.service';
+
+type RangePreset = 'weekly' | 'monthly' | 'custom';
+type JornadaSelection = number | 'all';
 
 interface DishItem {
   nombre: string;
@@ -12,6 +14,7 @@ interface OrderRow {
   id: string;
   mesa: string;
   pedido: number;
+  jornadaFecha: string;
   totalBruto: number;
   totalNeto: number;
   tipoPago: 'efectivo' | 'tarjeta' | 'mixto';
@@ -19,13 +22,6 @@ interface OrderRow {
   tarjetaBruto?: number;
   tarjetaNeto?: number;
   dishes: DishItem[];
-}
-
-interface ResumenVentasApi {
-  totalVentas: number;
-  totalEfectivo: number;
-  totalTarjetaBruto: number;
-  totalTarjetaNeto: number;
 }
 
 interface ParametrosLocalApi {
@@ -43,6 +39,14 @@ interface VentaApi {
   mesa: { numero: number } | null;
   jornada: { id: number } | null;
   totalCuenta: number;
+}
+
+interface JornadaApi {
+  id: number;
+  fecha: string;
+  estado: 'ABIERTA' | 'CERRADA' | string;
+  horaApertura: string;
+  horaCierre: string | null;
 }
 
 interface ItemVentaApi {
@@ -66,7 +70,13 @@ interface PagoApi {
   styleUrl: './ventas.css',
 })
 export class Ventas implements OnInit {
-  protected dateRange = 'Daily';
+  protected rangePreset: RangePreset = 'weekly';
+  protected startDate = '';
+  protected endDate = '';
+  protected jornadas: JornadaApi[] = [];
+  protected jornadasFiltradas: JornadaApi[] = [];
+  protected selectedJornadaId: JornadaSelection | null = null;
+
   protected totalVentas = 0;
   protected fondoInicial = 2000;
   protected totalEfectivo = 0;
@@ -77,13 +87,56 @@ export class Ventas implements OnInit {
 
   private readonly expandedOrders = new Set<string>();
 
-  constructor(
-    private readonly apiClient: ApiClientService,
-    private readonly jornadaService: JornadaService,
-  ) {}
+  constructor(private readonly apiClient: ApiClientService) {}
 
   async ngOnInit(): Promise<void> {
+    this.applyPresetDates(this.rangePreset);
+    await this.loadJornadas();
     await this.loadResumenVentas();
+  }
+
+  protected async onPresetChange(): Promise<void> {
+    if (this.rangePreset !== 'custom') {
+      this.applyPresetDates(this.rangePreset);
+    }
+    this.applyJornadaFilter();
+    await this.loadResumenVentas();
+  }
+
+  protected async onDateRangeChange(): Promise<void> {
+    this.rangePreset = 'custom';
+    this.applyJornadaFilter();
+    await this.loadResumenVentas();
+  }
+
+  protected async onJornadaChange(): Promise<void> {
+    await this.loadResumenVentas();
+  }
+
+  protected jornadaLabel(jornada: JornadaApi): string {
+    return `#${jornada.id} · ${jornada.fecha} · ${jornada.estado}`;
+  }
+
+  protected selectedScopeLabel(): string {
+    if (!this.jornadasFiltradas.length) {
+      return 'Sin jornadas en el rango';
+    }
+    if (this.selectedJornadaId === 'all' || this.selectedJornadaId === null) {
+      return `${this.jornadasFiltradas.length} jornada(s) del rango`;
+    }
+    const jornada = this.jornadasFiltradas.find((item) => item.id === this.selectedJornadaId);
+    return jornada ? this.jornadaLabel(jornada) : 'Jornada no disponible';
+  }
+
+  protected rangeLabel(): string {
+    const { start, end } = this.normalizedRange();
+    if (!start || !end) {
+      return 'Sin rango definido';
+    }
+    if (start === end) {
+      return start;
+    }
+    return `${start} a ${end}`;
   }
 
   protected async exportPdf(): Promise<void> {
@@ -115,25 +168,9 @@ export class Ventas implements OnInit {
       }
     };
 
-    const addTextBlock = (text: string, options: { bold?: boolean; fontSize?: number; indent?: number; color?: typeof palette.text | typeof palette.muted } = {}): void => {
-      const fontSize = options.fontSize ?? 10;
-      const indent = options.indent ?? 0;
-      const lineHeight = fontSize * 0.45 + 2;
-      const color = options.color ?? palette.text;
-
-      doc.setFont('helvetica', options.bold ? 'bold' : 'normal');
-      doc.setFontSize(fontSize);
-      doc.setTextColor(color[0], color[1], color[2]);
-
-      const lines = doc.splitTextToSize(text, contentWidth - indent) as string[];
-      ensureSpace(lines.length * lineHeight + 2);
-      doc.text(lines, margin + indent, y);
-      y += lines.length * lineHeight + 2;
-    };
-
     const drawHeader = (): void => {
       doc.setFillColor(...palette.primarySoft);
-      doc.rect(0, 0, pageWidth, 34, 'F');
+      doc.rect(0, 0, pageWidth, 38, 'F');
 
       doc.setFillColor(...palette.primary);
       doc.rect(0, 0, pageWidth, 4.5, 'F');
@@ -147,7 +184,8 @@ export class Ventas implements OnInit {
       doc.setFontSize(10);
       doc.setTextColor(...palette.muted);
       doc.text('Reporte de ventas', margin, 21);
-      doc.text(`Rango: ${this.dateRange}`, margin, 27);
+      doc.text(`Rango: ${this.rangeLabel()}`, margin, 27);
+      doc.text(`Ambito: ${this.selectedScopeLabel()}`, margin, 33);
 
       doc.setFont('helvetica', 'bold');
       doc.setTextColor(...palette.primary);
@@ -158,7 +196,7 @@ export class Ventas implements OnInit {
       doc.setTextColor(...palette.muted);
       doc.text('Total de ventas', pageWidth - margin, 24, { align: 'right' });
 
-      y = 40;
+      y = 44;
     };
 
     const addSectionTitle = (title: string): void => {
@@ -191,7 +229,7 @@ export class Ventas implements OnInit {
 
     const addOrderBlock = (order: OrderRow): void => {
       const extraLines = order.tipoPago === 'mixto' ? 1 : 0;
-      const estimatedHeight = 24 + order.dishes.length * 5 + extraLines * 4;
+      const estimatedHeight = 28 + order.dishes.length * 5 + extraLines * 4;
       ensureSpace(estimatedHeight);
 
       doc.setFillColor(255, 255, 255);
@@ -206,13 +244,13 @@ export class Ventas implements OnInit {
       doc.setTextColor(...palette.text);
       doc.text(`${order.mesa} · Pedido ${order.pedido}`, margin + 4.5, y + 7.2);
 
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.setTextColor(...palette.muted);
+      doc.text(`Fecha jornada: ${order.jornadaFecha}`, margin + 4.5, y + 12.2);
+
       const paymentLabel =
         order.tipoPago === 'efectivo' ? 'Efectivo' : order.tipoPago === 'tarjeta' ? 'Tarjeta' : 'Mixto';
-
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(9);
-      doc.setTextColor(...palette.muted);
-      doc.text(paymentLabel, margin + 4.5, y + 12.2);
 
       doc.setFont('helvetica', 'bold');
       doc.setTextColor(...palette.primary);
@@ -220,7 +258,7 @@ export class Ventas implements OnInit {
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(8.5);
       doc.setTextColor(...palette.muted);
-      doc.text('Neto', pageWidth - margin - 4.5, y + 12.2, { align: 'right' });
+      doc.text(paymentLabel, pageWidth - margin - 4.5, y + 12.2, { align: 'right' });
 
       let innerY = y + 18;
       doc.setFontSize(9.5);
@@ -265,10 +303,12 @@ export class Ventas implements OnInit {
     addSectionTitle('Pedidos');
 
     if (!this.ordersData.length) {
-      addTextBlock('Sin pedidos registrados en la jornada activa.', {
-        color: palette.muted,
-        fontSize: 9.5,
-      });
+      ensureSpace(8);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9.5);
+      doc.setTextColor(...palette.muted);
+      doc.text('Sin pedidos registrados en el ambito seleccionado.', margin, y);
+      y += 7;
     }
 
     for (const order of this.ordersData) {
@@ -285,10 +325,15 @@ export class Ventas implements OnInit {
       doc.setFontSize(8);
       doc.setTextColor(...palette.muted);
       doc.text(`Generado ${generatedAt}`, margin, pageHeight - 7);
-      doc.text(`Página ${page} de ${totalPages}`, pageWidth - margin, pageHeight - 7, { align: 'right' });
+      doc.text(`Pagina ${page} de ${totalPages}`, pageWidth - margin, pageHeight - 7, { align: 'right' });
     }
 
-    doc.save(`reporte-ventas-${this.dateRange.toLowerCase()}.pdf`);
+    const scopeSlug = this.selectedJornadaId === 'all' ? 'rango' : `jornada-${this.selectedJornadaId ?? 'na'}`;
+    const rangeSlug = this.rangeLabel()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+    doc.save(`reporte-ventas-${scopeSlug}-${rangeSlug || 'filtro'}.pdf`);
   }
 
   protected toggleOrder(id: string): void {
@@ -323,57 +368,50 @@ export class Ventas implements OnInit {
       // Mantiene fallback visual en caso de no haber parametros.
     }
 
-    await this.jornadaService.refreshJornada();
-    const jornada = this.jornadaService.jornadaAbierta();
-
-    if (!jornada) {
-      this.infoMessage = 'No hay jornada activa para consultar reporte de ventas.';
+    const jornadasSeleccionadas = this.getSelectedJornadas();
+    if (!jornadasSeleccionadas.length) {
+      this.infoMessage = 'No hay jornadas en el rango seleccionado.';
       return;
     }
 
     try {
-      const ventas = await this.apiClient.get<VentaApi[]>('/api/ventas/activas');
-      const ventasJornada = ventas.filter((venta) => venta.jornada?.id === jornada.id);
+      const ventasAgrupadas = await Promise.all(
+        jornadasSeleccionadas.map((jornada) => this.apiClient.get<VentaApi[]>(`/api/ventas/jornada/${jornada.id}`)),
+      );
+      const ventas = ventasAgrupadas.flat();
 
+      if (!ventas.length) {
+        this.infoMessage = 'No hay ventas registradas en el rango seleccionado.';
+        return;
+      }
+
+      const jornadaFechaById = new Map(jornadasSeleccionadas.map((jornada) => [jornada.id, jornada.fecha]));
       const orders = await Promise.all(
-        ventasJornada.map(async (venta) => {
+        ventas.map(async (venta) => {
           const [items, pagos] = await Promise.all([
             this.apiClient.get<ItemVentaApi[]>(`/api/ventas/items/venta/${venta.id}`),
             this.apiClient.get<PagoApi[]>(`/api/ventas/pagos/venta/${venta.id}`),
           ]);
-          return this.mapOrder(venta, items, pagos);
+          const jornadaFecha = jornadaFechaById.get(venta.jornada?.id ?? -1) ?? 'Sin fecha';
+          return this.mapOrder(venta, items, pagos, jornadaFecha);
         }),
       );
 
       this.ordersData = orders;
-
-      const resumen = await this.apiClient.get<ResumenVentasApi[]>(
-        `/api/reportes/ventas-diarias/jornada/${jornada.id}`,
-      );
-
-      if (!resumen.length) {
-        this.totalVentas = 0;
-        this.totalEfectivo = 0;
-        this.totalTarjetaBruto = 0;
-        this.totalTarjetaNeto = 0;
-        this.infoMessage = 'No hay datos de ventas para la jornada activa.';
-        return;
-      }
-
-      this.totalVentas = resumen.reduce(
-        (accumulator, item) => accumulator + Number(item.totalVentas ?? 0),
+      this.totalVentas = orders.reduce(
+        (accumulator, order) => accumulator + Number(order.totalBruto ?? 0),
         0,
       );
-      this.totalEfectivo = resumen.reduce(
-        (accumulator, item) => accumulator + Number(item.totalEfectivo ?? 0),
+      this.totalEfectivo = orders.reduce(
+        (accumulator, order) => accumulator + Number(order.efectivoAmount ?? 0),
         0,
       );
-      this.totalTarjetaBruto = resumen.reduce(
-        (accumulator, item) => accumulator + Number(item.totalTarjetaBruto ?? 0),
+      this.totalTarjetaBruto = orders.reduce(
+        (accumulator, order) => accumulator + Number(order.tarjetaBruto ?? 0),
         0,
       );
-      this.totalTarjetaNeto = resumen.reduce(
-        (accumulator, item) => accumulator + Number(item.totalTarjetaNeto ?? 0),
+      this.totalTarjetaNeto = orders.reduce(
+        (accumulator, order) => accumulator + Number(order.tarjetaNeto ?? 0),
         0,
       );
     } catch (error) {
@@ -384,7 +422,33 @@ export class Ventas implements OnInit {
     }
   }
 
-  private mapOrder(venta: VentaApi, items: ItemVentaApi[], pagos: PagoApi[]): OrderRow {
+  private async loadJornadas(): Promise<void> {
+    try {
+      const jornadas = await this.apiClient.get<JornadaApi[]>('/api/operacion/jornadas');
+      this.jornadas = [...jornadas].sort((a, b) => {
+        if (a.fecha === b.fecha) {
+          return b.id - a.id;
+        }
+        return b.fecha.localeCompare(a.fecha);
+      });
+      this.applyJornadaFilter();
+    } catch (error) {
+      this.jornadas = [];
+      this.jornadasFiltradas = [];
+      this.selectedJornadaId = null;
+      this.infoMessage =
+        error instanceof Error && error.message
+          ? error.message
+          : 'No se pudieron cargar las jornadas.';
+    }
+  }
+
+  private mapOrder(
+    venta: VentaApi,
+    items: ItemVentaApi[],
+    pagos: PagoApi[],
+    jornadaFecha: string,
+  ): OrderRow {
     const dishes = items.map((item) => {
       const cantidad = Number(item.cantidad ?? 1);
       const precioTotal = Number(item.precioUnitario ?? 0) * (Number.isFinite(cantidad) ? cantidad : 1);
@@ -422,6 +486,7 @@ export class Ventas implements OnInit {
       id: `order-${venta.id}`,
       mesa: `Mesa ${venta.mesa?.numero ?? '-'}`,
       pedido: venta.id,
+      jornadaFecha,
       totalBruto: brutoFallback,
       totalNeto,
       tipoPago,
@@ -430,5 +495,74 @@ export class Ventas implements OnInit {
       tarjetaNeto: tipoPago !== 'efectivo' ? tarjetaNeto || totalNeto : undefined,
       dishes,
     };
+  }
+
+  private applyPresetDates(preset: RangePreset): void {
+    const today = new Date();
+    const end = this.toIsoDate(today);
+    const startDate = new Date(today);
+
+    if (preset === 'weekly') {
+      startDate.setDate(today.getDate() - 6);
+    } else if (preset === 'monthly') {
+      startDate.setDate(today.getDate() - 29);
+    }
+
+    this.endDate = end;
+    this.startDate = this.toIsoDate(startDate);
+  }
+
+  private applyJornadaFilter(): void {
+    const { start, end } = this.normalizedRange();
+    this.jornadasFiltradas = this.jornadas.filter((jornada) => {
+      if (!start || !end) {
+        return true;
+      }
+      return jornada.fecha >= start && jornada.fecha <= end;
+    });
+
+    if (!this.jornadasFiltradas.length) {
+      this.selectedJornadaId = null;
+      return;
+    }
+
+    if (this.selectedJornadaId === null) {
+      this.selectedJornadaId = 'all';
+      return;
+    }
+
+    if (
+      this.selectedJornadaId !== 'all' &&
+      !this.jornadasFiltradas.some((jornada) => jornada.id === this.selectedJornadaId)
+    ) {
+      this.selectedJornadaId = 'all';
+    }
+  }
+
+  private getSelectedJornadas(): JornadaApi[] {
+    if (!this.jornadasFiltradas.length) {
+      return [];
+    }
+    if (this.selectedJornadaId === 'all' || this.selectedJornadaId === null) {
+      return this.jornadasFiltradas;
+    }
+    const jornada = this.jornadasFiltradas.find((item) => item.id === this.selectedJornadaId);
+    return jornada ? [jornada] : [];
+  }
+
+  private normalizedRange(): { start: string; end: string } {
+    let start = this.startDate;
+    let end = this.endDate;
+    if (start && end && start > end) {
+      [start, end] = [end, start];
+    }
+    return { start, end };
+  }
+
+  private toIsoDate(date: Date): string {
+    const year = date.getFullYear();
+    const month = `${date.getMonth() + 1}`.padStart(2, '0');
+    const day = `${date.getDate()}`.padStart(2, '0');
+    return `${year}-${month}-${day}`;
   }
 }

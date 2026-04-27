@@ -5,6 +5,7 @@ import com.pagoda.pagoda_api.exception.ErrorCode;
 import com.pagoda.pagoda_api.exception.PagodaException;
 import com.pagoda.pagoda_api.repository.operacion.UsuarioRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import java.util.List;
 
@@ -13,6 +14,7 @@ import java.util.List;
 public class UsuarioService {
 
     private final UsuarioRepository usuarioRepository;
+    private final PasswordEncoder passwordEncoder;
 
     public List<Usuario> obtenerTodos() {
         return usuarioRepository.findAll();
@@ -56,5 +58,18 @@ public class UsuarioService {
     public void eliminar(Integer id) {
         Usuario usuario = obtenerPorId(id);
         usuarioRepository.delete(usuario);
+    }
+
+    public void validarPinUnicoEntreMeserosActivos(String pinPlano, Integer rolId, Integer usuarioExcluirId) {
+        if (pinPlano == null || pinPlano.isBlank() || rolId == null) {
+            return;
+        }
+        List<Usuario> usuariosMismoRol = usuarioRepository.findByRolIdAndActivoTrueOrderByIdDesc(rolId);
+        boolean pinDuplicado = usuariosMismoRol.stream()
+                .filter(u -> usuarioExcluirId == null || !u.getId().equals(usuarioExcluirId))
+                .anyMatch(u -> passwordEncoder.matches(pinPlano, u.getPinHash()));
+        if (pinDuplicado) {
+            throw new PagodaException(ErrorCode.PIN_DUPLICADO);
+        }
     }
 }

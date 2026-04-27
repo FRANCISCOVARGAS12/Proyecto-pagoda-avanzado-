@@ -1,6 +1,7 @@
 .controls-row {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 1rem;
   margin-bottom: 1.5rem;
 }
@@ -47,7 +48,13 @@
 .ventas-total {
   font-size: 2rem;
   font-weight: 700;
-  margin: 0 0 1.5rem;
+  margin: 0 0 1rem;
+}
+
+.ventas-scope {
+  margin: 0 0 0.4rem;
+  color: var(--muted-foreground);
+  font-size: 0.88rem;
 }
 
 .ventas-info {
@@ -197,4 +204,14 @@
   padding: 1rem;
   color: var(--muted-foreground);
   font-size: 0.9rem;
+}
+
+@media (width <= 900px) {
+  .primary-btn {
+    margin-left: 0;
+  }
+
+  .summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }

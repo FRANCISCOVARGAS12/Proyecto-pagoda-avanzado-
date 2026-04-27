@@ -32,6 +32,7 @@ public enum ErrorCode {
     PARAMETROS_NO_CONFIGURADOS(6007, "Parametros del local no configurados", HttpStatus.NOT_FOUND),
     PIN_INCORRECTO(6008, "PIN incorrecto", HttpStatus.UNAUTHORIZED),
     TOKEN_INVALIDO(6009, "Sesion invalida o expirada", HttpStatus.UNAUTHORIZED),
+    PIN_DUPLICADO(6010, "El PIN ya esta asignado a otro mesero activo", HttpStatus.CONFLICT),
 
     JORNADA_NO_ENCONTRADA(7001, "Jornada no encontrada", HttpStatus.NOT_FOUND),
     JORNADA_CERRADA(7002, "La jornada ya esta cerrada", HttpStatus.BAD_REQUEST),

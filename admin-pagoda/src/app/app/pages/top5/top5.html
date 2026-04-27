@@ -2,15 +2,27 @@
   <h1 class="page-title">Top 5 Platillos Más Vendidos</h1>
 
   <div class="date-filters">
+    <select
+      [(ngModel)]="rangePreset"
+      (ngModelChange)="onPresetChange()"
+      class="control-input"
+    >
+      <option value="weekly">Semanal</option>
+      <option value="monthly">Mensual</option>
+      <option value="custom">Personalizado</option>
+    </select>
+
     <div class="date-field">
-      <label for="startDate">Start Date</label>
-      <input id="startDate" type="date" [(ngModel)]="startDate" />
+      <label for="startDate">Fecha de Inicio</label>
+      <input id="startDate" type="date" [(ngModel)]="startDate" (change)="onDateRangeChange()" />
     </div>
     <div class="date-field">
-      <label for="endDate">End Date</label>
-      <input id="endDate" type="date" [(ngModel)]="endDate" />
+      <label for="endDate">Fecha de Fin</label>
+      <input id="endDate" type="date" [(ngModel)]="endDate" (change)="onDateRangeChange()" />
     </div>
   </div>
+
+  <p class="range-caption">Rango seleccionado: {{ rangeLabel() }}</p>
 
   <div class="table-shell">
     <table>
@@ -41,5 +53,5 @@
     <p class="table-footnote">{{ infoMessage }}</p>
   }
 
-  <p class="table-footnote">Ordenado por Total Generado · de mayor a menor</p>
+  <p class="table-footnote">Ordenado por total generado · de mayor a menor</p>
 </section>

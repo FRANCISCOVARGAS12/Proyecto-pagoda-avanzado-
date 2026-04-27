@@ -8,6 +8,8 @@ import java.util.List;
 @Repository
 public interface VentaRepository extends JpaRepository<Venta, Integer> {
     List<Venta> findByJornadaId(Integer jornadaId);
+    List<Venta> findByJornadaIdOrderByFechaCreacionDesc(Integer jornadaId);
     List<Venta> findByMesaId(Integer mesaId);
     List<Venta> findByFechaCierreIsNull();
+    boolean existsByMesaIdAndFechaCierreIsNull(Integer mesaId);
 }
