@@ -1,1 +1,4 @@
-export const API_BASE_URL = 'http://localhost:8080';
+export const environment = {
+  production: true,
+  API: 'https://pagoda-api-v1-1.onrender.com/api/v1'
+};

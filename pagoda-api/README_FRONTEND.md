@@ -35,11 +35,12 @@ Origenes permitidos en dev por defecto:
 
 - `http://localhost:4200`
 - `http://localhost:5173`
+- `https://paquinhodevv.github.io`
 
 Puedes cambiarlo con variable de entorno:
 
 ```bash
-export CORS_ALLOWED_ORIGINS="http://localhost:4200,http://localhost:3000"
+export CORS_ALLOWED_ORIGINS="http://localhost:4200,http://localhost:3000,https://paquinhodevv.github.io"
 ```
 
 ## Endpoints clave para front
