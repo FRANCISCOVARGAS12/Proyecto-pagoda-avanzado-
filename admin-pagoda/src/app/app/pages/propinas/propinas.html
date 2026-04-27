@@ -16,7 +16,7 @@
         id="startDate"
         type="date"
         [(ngModel)]="startDate"
-        (ngModelChange)="onDateRangeChange('start')"
+        (change)="onDateRangeChange('start')"
       />
     </div>
     <div class="date-field">
@@ -25,7 +25,7 @@
         id="endDate"
         type="date"
         [(ngModel)]="endDate"
-        (ngModelChange)="onDateRangeChange('end')"
+        (change)="onDateRangeChange('end')"
       />
     </div>
   </div>

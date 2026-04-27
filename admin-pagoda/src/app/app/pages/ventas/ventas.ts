@@ -437,6 +437,11 @@ export class Ventas implements OnInit {
         }
         return fechaB.localeCompare(fechaA);
       });
+      const initialReferenceDate =
+        jornadaAbierta?.fecha ?? (this.jornadas.length ? this.jornadas[0].fecha : this.endDate);
+      if (initialReferenceDate) {
+        this.applyPresetDates(this.rangePreset, initialReferenceDate);
+      }
       this.applyJornadaFilter();
     } catch (error) {
       this.jornadaAbiertaId = null;
@@ -504,15 +509,15 @@ export class Ventas implements OnInit {
     };
   }
 
-  private applyPresetDates(preset: RangePreset): void {
-    const today = new Date();
-    const end = this.toIsoDate(today);
-    const startDate = new Date(today);
+  private applyPresetDates(preset: RangePreset, referenceDate?: string): void {
+    const reference = referenceDate ? this.parseIsoDate(referenceDate) : new Date();
+    const end = this.toIsoDate(reference);
+    const startDate = new Date(reference);
 
     if (preset === 'weekly') {
-      startDate.setDate(today.getDate() - 6);
+      startDate.setDate(reference.getDate() - 6);
     } else if (preset === 'monthly') {
-      startDate.setDate(today.getDate() - 29);
+      startDate.setDate(reference.getDate() - 29);
     }
 
     this.endDate = end;
@@ -586,5 +591,14 @@ export class Ventas implements OnInit {
 
   private normalizeDate(rawDate: string): string {
     return (rawDate ?? '').toString().slice(0, 10);
+  }
+
+  private parseIsoDate(rawDate: string): Date {
+    const normalized = this.normalizeDate(rawDate);
+    const parsed = new Date(`${normalized}T00:00:00`);
+    if (Number.isNaN(parsed.getTime())) {
+      return new Date();
+    }
+    return parsed;
   }
 }

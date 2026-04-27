@@ -36,6 +36,7 @@ export class Propinas implements OnInit {
   protected jornadasFiltradas: JornadaApi[] = [];
   protected totalPropinas = 0;
   protected infoMessage = '';
+  private syncingRange = false;
 
   constructor(private readonly apiClient: ApiClientService) {}
 
@@ -51,12 +52,20 @@ export class Propinas implements OnInit {
   }
 
   protected async onDateRangeChange(source: 'start' | 'end'): Promise<void> {
+    if (this.syncingRange) {
+      return;
+    }
+    this.syncingRange = true;
     const sourceDate = source === 'start' ? this.startDate : this.endDate;
     const range = this.resolveQuincenaRange(sourceDate || this.startDate || this.endDate || this.todayIso);
     this.startDate = range.start;
     this.endDate = range.end;
     this.applyJornadaFilter();
-    await this.loadPropinas();
+    try {
+      await this.loadPropinas();
+    } finally {
+      this.syncingRange = false;
+    }
   }
 
   protected async goToPreviousPeriod(): Promise<void> {
@@ -112,7 +121,9 @@ export class Propinas implements OnInit {
         return fechaB.localeCompare(fechaA);
       });
       this.quincenaBaseDate = this.resolveQuincenaBaseDate(this.jornadas);
-      this.applyPresetDates(this.rangePreset, jornadaAbierta?.fecha ?? this.todayIso);
+      const initialReferenceDate =
+        jornadaAbierta?.fecha ?? (this.jornadas.length ? this.jornadas[0].fecha : this.todayIso);
+      this.applyPresetDates(this.rangePreset, initialReferenceDate);
       this.applyJornadaFilter();
     } catch (error) {
       this.jornadas = [];
