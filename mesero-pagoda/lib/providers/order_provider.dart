@@ -1,12 +1,16 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/api_config.dart';
 import '../models/models.dart';
 
 class OrderProvider extends ChangeNotifier {
+  static const String _tablesStateKeyPrefix = 'pagoda.tables.state.v1.user.';
+
   BoardTable? _currentTable;
   List<BoardTable> _tables = _defaultTables();
   final List<Map<String, dynamic>> _menuItems = [];
@@ -83,12 +87,14 @@ class OrderProvider extends ChangeNotifier {
   }
 
   Future<void> refreshInitialData() async {
+    await _restoreTablesState();
     await Future.wait([
       refreshCatalogCaches(),
       refreshTables(),
       refreshMenu(),
       refreshCommission(),
     ]);
+    await _persistTablesState();
   }
 
   Future<void> refreshMenu() async {
@@ -169,13 +175,17 @@ class OrderProvider extends ChangeNotifier {
       final serverStatus = _mapMesaStatus(
         (mesa['estado'] as Map<String, dynamic>?)?['nombre']?.toString(),
       );
+      final keepLocalState = prev != null &&
+          (prev.orders.isNotEmpty ||
+              prev.guests > 0 ||
+              prev.status != TableStatus.libre);
       loaded.add(
         BoardTable(
           id: number.toString(),
           name: 'Mesa $number',
           backendId: id,
           tableNumber: number,
-          status: prev?.orders.isNotEmpty == true ? prev!.status : serverStatus,
+          status: keepLocalState ? prev!.status : serverStatus,
           guests: prev?.guests ?? 0,
           tipAmount: prev?.tipAmount ?? 0,
           orders: prev?.orders ?? [],
@@ -187,7 +197,14 @@ class OrderProvider extends ChangeNotifier {
     if (loaded.isNotEmpty) {
       _tables = loaded;
     }
+
+    final currentBackendId = _currentTable?.backendId;
+    if (currentBackendId != null) {
+      _currentTable = _tableByBackendId(currentBackendId);
+    }
+
     notifyListeners();
+    _queuePersistTablesState();
   }
 
   Future<void> refreshCatalogCaches() async {
@@ -347,6 +364,7 @@ class OrderProvider extends ChangeNotifier {
   void setCurrentTable(BoardTable table) {
     _currentTable = table;
     notifyListeners();
+    _queuePersistTablesState();
   }
 
   void openTable(BoardTable table, int guests) {
@@ -355,21 +373,25 @@ class OrderProvider extends ChangeNotifier {
     table.status = TableStatus.ocupado;
     _currentTable = table;
     notifyListeners();
+    _queuePersistTablesState();
   }
 
   void updateGuests(BoardTable table, int guests) {
     table.guests = guests;
     notifyListeners();
+    _queuePersistTablesState();
   }
 
   void addItem(OrderItem item) {
     _currentTable?.orders.add(item);
     notifyListeners();
+    _queuePersistTablesState();
   }
 
   void removePendingItem(String id) {
     _currentTable?.orders.removeWhere((i) => i.id == id && !i.isSentToKitchen);
     notifyListeners();
+    _queuePersistTablesState();
   }
 
   void confirmKitchenRound() {
@@ -377,6 +399,7 @@ class OrderProvider extends ChangeNotifier {
       item.isSentToKitchen = true;
     }
     notifyListeners();
+    _queuePersistTablesState();
   }
 
   void markTableFree(BoardTable table) {
@@ -384,12 +407,17 @@ class OrderProvider extends ChangeNotifier {
     table.guests = 0;
     table.tipAmount = 0;
     table.orders.clear();
+    if (_currentTable?.backendId == table.backendId) {
+      _currentTable = null;
+    }
     notifyListeners();
+    _queuePersistTablesState();
   }
 
   void updateTip(BoardTable table, double tipAmount) {
     table.tipAmount = tipAmount < 0 ? 0 : tipAmount;
     notifyListeners();
+    _queuePersistTablesState();
   }
 
   void clearOrder() {
@@ -399,6 +427,7 @@ class OrderProvider extends ChangeNotifier {
       _currentTable!.status = TableStatus.limpiando;
       _currentTable = null;
       notifyListeners();
+      _queuePersistTablesState();
     }
   }
 
@@ -481,6 +510,144 @@ class OrderProvider extends ChangeNotifier {
     }
     if (estado == 'LIMPIANDO') return TableStatus.limpiando;
     return TableStatus.libre;
+  }
+
+  String? get _tablesStateKey {
+    final userId = _usuarioId;
+    if (userId == null) {
+      return null;
+    }
+    return '$_tablesStateKeyPrefix$userId';
+  }
+
+  Future<void> _restoreTablesState() async {
+    final stateKey = _tablesStateKey;
+    if (stateKey == null) {
+      return;
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(stateKey);
+    if (raw == null || raw.isEmpty) {
+      return;
+    }
+
+    dynamic decoded;
+    try {
+      decoded = jsonDecode(raw);
+    } on FormatException {
+      await prefs.remove(stateKey);
+      return;
+    }
+    if (decoded is! Map<String, dynamic>) {
+      return;
+    }
+
+    final tablesData = decoded['tables'];
+    if (tablesData is List) {
+      final restoredTables = tablesData
+          .whereType<Map<String, dynamic>>()
+          .map(_tableFromJson)
+          .toList();
+      if (restoredTables.isNotEmpty) {
+        _tables = restoredTables;
+      }
+    }
+
+    final currentBackendId =
+        (decoded['currentTableBackendId'] as num?)?.toInt();
+    if (currentBackendId != null) {
+      _currentTable = _tableByBackendId(currentBackendId);
+    }
+  }
+
+  Future<void> _persistTablesState() async {
+    final stateKey = _tablesStateKey;
+    if (stateKey == null) {
+      return;
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    final payload = {
+      'tables': _tables.map(_tableToJson).toList(),
+      'currentTableBackendId': _currentTable?.backendId,
+    };
+    await prefs.setString(stateKey, jsonEncode(payload));
+  }
+
+  void _queuePersistTablesState() {
+    unawaited(_persistTablesState().catchError((_) {}));
+  }
+
+  BoardTable? _tableByBackendId(int backendId) {
+    for (final table in _tables) {
+      if (table.backendId == backendId) {
+        return table;
+      }
+    }
+    return null;
+  }
+
+  Map<String, dynamic> _tableToJson(BoardTable table) {
+    return {
+      'id': table.id,
+      'name': table.name,
+      'backendId': table.backendId,
+      'tableNumber': table.tableNumber,
+      'status': table.status.name,
+      'guests': table.guests,
+      'tipAmount': table.tipAmount,
+      'orders': table.orders.map(_orderItemToJson).toList(),
+    };
+  }
+
+  BoardTable _tableFromJson(Map<String, dynamic> raw) {
+    final statusRaw = raw['status']?.toString() ?? TableStatus.libre.name;
+    final status = TableStatus.values.firstWhere(
+      (value) => value.name == statusRaw,
+      orElse: () => TableStatus.libre,
+    );
+    final ordersRaw = raw['orders'];
+    final orders = ordersRaw is List
+        ? ordersRaw
+            .whereType<Map<String, dynamic>>()
+            .map(_orderItemFromJson)
+            .toList()
+        : <OrderItem>[];
+    return BoardTable(
+      id: raw['id']?.toString() ?? '',
+      name: raw['name']?.toString() ?? 'Mesa',
+      backendId: (raw['backendId'] as num?)?.toInt(),
+      tableNumber: (raw['tableNumber'] as num?)?.toInt(),
+      status: status,
+      guests: (raw['guests'] as num?)?.toInt() ?? 0,
+      tipAmount: (raw['tipAmount'] as num?)?.toDouble() ?? 0,
+      orders: orders,
+    );
+  }
+
+  Map<String, dynamic> _orderItemToJson(OrderItem item) {
+    return {
+      'id': item.id,
+      'productId': item.productId,
+      'name': item.name,
+      'price': item.price,
+      'diner': item.diner,
+      'notes': item.notes,
+      'isSentToKitchen': item.isSentToKitchen,
+    };
+  }
+
+  OrderItem _orderItemFromJson(Map<String, dynamic> raw) {
+    return OrderItem(
+      id: raw['id']?.toString() ?? '',
+      productId: (raw['productId'] as num?)?.toInt(),
+      name: raw['name']?.toString() ?? 'Producto',
+      price: (raw['price'] as num?)?.toDouble() ?? 0,
+      diner: (raw['diner'] as num?)?.toInt() ?? 1,
+      notes: raw['notes']?.toString(),
+      isSentToKitchen: raw['isSentToKitchen'] == true,
+    );
   }
 
   static List<BoardTable> _defaultTables() {

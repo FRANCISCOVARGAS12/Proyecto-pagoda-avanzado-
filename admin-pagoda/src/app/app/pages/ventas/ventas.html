@@ -15,14 +15,14 @@
     <input
       type="date"
       [(ngModel)]="startDate"
-      (change)="onDateRangeChange()"
+      (ngModelChange)="onDateRangeChange()"
       class="control-input"
     />
 
     <input
       type="date"
       [(ngModel)]="endDate"
-      (change)="onDateRangeChange()"
+      (ngModelChange)="onDateRangeChange()"
       class="control-input"
     />
 

@@ -115,7 +115,7 @@ export class Ventas implements OnInit {
   }
 
   protected jornadaLabel(jornada: JornadaApi): string {
-    return `#${jornada.id} · ${jornada.fecha} · ${jornada.estado}`;
+    return `#${jornada.id} · ${this.normalizeDate(jornada.fecha)} · ${jornada.estado}`;
   }
 
   protected selectedScopeLabel(): string {
@@ -368,6 +368,7 @@ export class Ventas implements OnInit {
     } catch {
       // Mantiene fallback visual en caso de no haber parametros.
     }
+    this.totalVentas = this.fondoInicial;
 
     const jornadasSeleccionadas = this.getSelectedJornadas();
     if (!jornadasSeleccionadas.length) {
@@ -393,16 +394,13 @@ export class Ventas implements OnInit {
             this.apiClient.get<ItemVentaApi[]>(`/api/ventas/items/venta/${venta.id}`),
             this.apiClient.get<PagoApi[]>(`/api/ventas/pagos/venta/${venta.id}`),
           ]);
-          const jornadaFecha = jornadaFechaById.get(venta.jornada?.id ?? -1) ?? 'Sin fecha';
+          const jornadaFechaRaw = jornadaFechaById.get(venta.jornada?.id ?? -1) ?? 'Sin fecha';
+          const jornadaFecha = jornadaFechaRaw === 'Sin fecha' ? jornadaFechaRaw : this.normalizeDate(jornadaFechaRaw);
           return this.mapOrder(venta, items, pagos, jornadaFecha);
         }),
       );
 
       this.ordersData = orders;
-      this.totalVentas = orders.reduce(
-        (accumulator, order) => accumulator + Number(order.totalBruto ?? 0),
-        0,
-      );
       this.totalEfectivo = orders.reduce(
         (accumulator, order) => accumulator + Number(order.efectivoAmount ?? 0),
         0,
@@ -415,6 +413,7 @@ export class Ventas implements OnInit {
         (accumulator, order) => accumulator + Number(order.tarjetaNeto ?? 0),
         0,
       );
+      this.totalVentas = this.fondoInicial + this.totalEfectivo + this.totalTarjetaNeto;
     } catch (error) {
       this.infoMessage =
         error instanceof Error && error.message
@@ -431,10 +430,12 @@ export class Ventas implements OnInit {
       ]);
       this.jornadaAbiertaId = jornadaAbierta?.id ?? null;
       this.jornadas = [...jornadas].sort((a, b) => {
-        if (a.fecha === b.fecha) {
+        const fechaA = this.normalizeDate(a.fecha);
+        const fechaB = this.normalizeDate(b.fecha);
+        if (fechaA === fechaB) {
           return b.id - a.id;
         }
-        return b.fecha.localeCompare(a.fecha);
+        return fechaB.localeCompare(fechaA);
       });
       this.applyJornadaFilter();
     } catch (error) {
@@ -524,7 +525,8 @@ export class Ventas implements OnInit {
       if (!start || !end) {
         return true;
       }
-      return jornada.fecha >= start && jornada.fecha <= end;
+      const jornadaDate = this.normalizeDate(jornada.fecha);
+      return jornadaDate >= start && jornadaDate <= end;
     });
 
     if (!this.jornadasFiltradas.length) {
@@ -580,5 +582,9 @@ export class Ventas implements OnInit {
     const month = `${date.getMonth() + 1}`.padStart(2, '0');
     const day = `${date.getDate()}`.padStart(2, '0');
     return `${year}-${month}-${day}`;
+  }
+
+  private normalizeDate(rawDate: string): string {
+    return (rawDate ?? '').toString().slice(0, 10);
   }
 }

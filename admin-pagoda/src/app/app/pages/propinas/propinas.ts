@@ -104,10 +104,12 @@ export class Propinas implements OnInit {
         this.apiClient.getOrNull<JornadaApi>('/api/operacion/jornadas/estado'),
       ]);
       this.jornadas = [...jornadas].sort((a, b) => {
-        if (a.fecha === b.fecha) {
+        const fechaA = this.normalizeDate(a.fecha);
+        const fechaB = this.normalizeDate(b.fecha);
+        if (fechaA === fechaB) {
           return b.id - a.id;
         }
-        return b.fecha.localeCompare(a.fecha);
+        return fechaB.localeCompare(fechaA);
       });
       this.quincenaBaseDate = this.resolveQuincenaBaseDate(this.jornadas);
       this.applyPresetDates(this.rangePreset, jornadaAbierta?.fecha ?? this.todayIso);
@@ -186,7 +188,8 @@ export class Propinas implements OnInit {
       if (!start || !end) {
         return true;
       }
-      return jornada.fecha >= start && jornada.fecha <= end;
+      const jornadaDate = this.normalizeDate(jornada.fecha);
+      return jornadaDate >= start && jornadaDate <= end;
     });
   }
 
@@ -212,12 +215,15 @@ export class Propinas implements OnInit {
     }
     return [...jornadas]
       .sort((a, b) => {
-        if (a.fecha === b.fecha) {
+        const fechaA = this.normalizeDate(a.fecha);
+        const fechaB = this.normalizeDate(b.fecha);
+        if (fechaA === fechaB) {
           return a.id - b.id;
         }
-        return a.fecha.localeCompare(b.fecha);
+        return fechaA.localeCompare(fechaB);
       })[0]
-      .fecha;
+      .fecha
+      .slice(0, 10);
   }
 
   private resolveQuincenaRange(referenceDate: string): { start: string; end: string } {
@@ -246,7 +252,8 @@ export class Propinas implements OnInit {
   }
 
   private parseIsoDate(value: string): Date {
-    const parsed = new Date(`${value}T00:00:00`);
+    const normalizedValue = this.normalizeDate(value);
+    const parsed = new Date(`${normalizedValue}T00:00:00`);
     if (Number.isNaN(parsed.getTime())) {
       return new Date(`${this.todayIso}T00:00:00`);
     }
@@ -257,5 +264,9 @@ export class Propinas implements OnInit {
     const result = new Date(baseDate);
     result.setDate(result.getDate() + days);
     return result;
+  }
+
+  private normalizeDate(rawDate: string): string {
+    return (rawDate ?? '').toString().slice(0, 10);
   }
 }
