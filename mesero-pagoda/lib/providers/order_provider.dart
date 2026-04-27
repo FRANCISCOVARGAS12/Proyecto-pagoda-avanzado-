@@ -3,14 +3,10 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
+import '../core/api_config.dart';
 import '../models/models.dart';
 
 class OrderProvider extends ChangeNotifier {
-  static const String _apiBaseUrl = String.fromEnvironment(
-    'PAGODA_API_URL',
-    defaultValue: 'http://localhost:8080',
-  );
-
   BoardTable? _currentTable;
   List<BoardTable> _tables = _defaultTables();
   final List<Map<String, dynamic>> _menuItems = [];
@@ -58,7 +54,8 @@ class OrderProvider extends ChangeNotifier {
     }
     _setLoading(true);
     try {
-      final data = await _postApiData('/api/mesero/login', {'pin': normalizedPin});
+      final data =
+          await _postApiData(ApiConfig.loginMesero, {'pin': normalizedPin});
       _token = (data['token'] ?? '').toString();
       _usuarioId = (data['usuarioId'] as num?)?.toInt();
       _usuarioNombre = data['nombre']?.toString();
@@ -96,8 +93,8 @@ class OrderProvider extends ChangeNotifier {
 
   Future<void> refreshMenu() async {
     _ensureAuthenticated();
-    final categoriesRaw = await _getApiList('/api/categorias');
-    final productsRaw = await _getApiList('/api/productos');
+    final categoriesRaw = await _getApiList(ApiConfig.categorias);
+    final productsRaw = await _getApiList(ApiConfig.productos);
 
     final categoryById = <int, String>{};
     final orderedCategories = <String>[];
@@ -156,7 +153,7 @@ class OrderProvider extends ChangeNotifier {
 
   Future<void> refreshTables() async {
     _ensureAuthenticated();
-    final mesasRaw = await _getApiList('/api/mesas');
+    final mesasRaw = await _getApiList(ApiConfig.mesas);
     final prevByBackend = <int, BoardTable>{
       for (final t in _tables)
         if (t.backendId != null) t.backendId!: t,
@@ -195,9 +192,9 @@ class OrderProvider extends ChangeNotifier {
 
   Future<void> refreshCatalogCaches() async {
     _ensureAuthenticated();
-    final metodos = await _getApiList('/api/catalogos/metodos-pago');
-    final tiposCobro = await _getApiList('/api/catalogos/tipos-cobro');
-    final estadosItem = await _getApiList('/api/catalogos/estados-item');
+    final metodos = await _getApiList(ApiConfig.metodosPago);
+    final tiposCobro = await _getApiList(ApiConfig.tiposCobro);
+    final estadosItem = await _getApiList(ApiConfig.estadosItem);
 
     _metodoPagoIds
       ..clear()
@@ -230,7 +227,7 @@ class OrderProvider extends ChangeNotifier {
   Future<void> refreshCommission() async {
     _ensureAuthenticated();
     try {
-      final params = await _getApiData('/api/operacion/parametros');
+      final params = await _getApiData(ApiConfig.parametrosOperacion);
       if (params is! Map<String, dynamic>) return;
       final commission = (params['comisionBancaria'] as num?)?.toDouble();
       if (commission != null && commission >= 0) {
@@ -274,7 +271,7 @@ class OrderProvider extends ChangeNotifier {
           'No se encontró el tipo de cobro $tipoCobroNombre en catálogo.');
     }
 
-    final venta = await _postApiData('/api/ventas/abrir', {
+    final venta = await _postApiData(ApiConfig.abrirVenta, {
       'mesa': {'id': table.backendId},
       'usuario': {'id': _usuarioId},
       'numComensales': table.guests,
@@ -290,7 +287,7 @@ class OrderProvider extends ChangeNotifier {
       if (item.productId == null) {
         throw Exception('Producto sin ID de API en la orden: ${item.name}.');
       }
-      await _postApiData('/api/ventas/items', {
+      await _postApiData(ApiConfig.crearVentaItem, {
         'venta': {'id': ventaId},
         'producto': {'id': item.productId},
         'numeroComensal': item.diner,
@@ -316,19 +313,22 @@ class OrderProvider extends ChangeNotifier {
       final net = _round2(payment.amount * (1 - (commission / 100)));
       final tipAmount =
           payment.tipAmount <= 0 ? 0.0 : _round2(payment.tipAmount);
-      final tipMethod = payment.tipMethod;
-      final tipMethodName = tipMethod == null
-          ? null
-          : (tipMethod == PaymentMethod.tarjeta ? 'TARJETA' : 'EFECTIVO');
-      final tipMethodId =
-          tipMethodName == null ? null : _metodoPagoIds[tipMethodName];
-      final tipCommission =
-          tipMethod == PaymentMethod.tarjeta ? _cardCommissionPercent : 0.0;
+      final effectiveTipMethod = payment.tipMethod ?? payment.method;
+      final tipMethodName =
+          effectiveTipMethod == PaymentMethod.tarjeta ? 'TARJETA' : 'EFECTIVO';
+      final tipMethodId = _metodoPagoIds[tipMethodName];
+      if (tipMethodId == null) {
+        throw Exception(
+            'No se encontró método de pago $tipMethodName para la propina.');
+      }
+      final tipCommission = effectiveTipMethod == PaymentMethod.tarjeta
+          ? _cardCommissionPercent
+          : 0.0;
       final tipNet = tipAmount <= 0
           ? 0.0
           : _round2(tipAmount * (1 - (tipCommission / 100)));
 
-      await _postApiData('/api/ventas/pagos', {
+      await _postApiData(ApiConfig.crearVentaPago, {
         'venta': {'id': ventaId},
         'numeroComensal': payment.diner,
         'metodoPago': {'id': methodId},
@@ -336,12 +336,12 @@ class OrderProvider extends ChangeNotifier {
         'comisionPorcentaje': _round2(commission),
         'montoNeto': net,
         'propinaMonto': tipAmount,
-        'propinaMetodoPago': tipMethodId == null ? null : {'id': tipMethodId},
+        'propinaMetodoPago': {'id': tipMethodId},
         'propinaNeto': tipNet,
       });
     }
 
-    await _putApiData('/api/ventas/$ventaId/cerrar', {});
+    await _putApiData(ApiConfig.cerrarVenta(ventaId), {});
   }
 
   void setCurrentTable(BoardTable table) {
@@ -413,22 +413,23 @@ class OrderProvider extends ChangeNotifier {
     }
   }
 
-  Future<dynamic> _getApiData(String path) async {
-    final uri = Uri.parse('$_apiBaseUrl$path');
+  Future<dynamic> _getApiData(String endpoint) async {
+    final uri = Uri.parse(endpoint);
     final response = await http.get(uri, headers: _headers());
     return _unwrapResponse(response);
   }
 
-  Future<List<Map<String, dynamic>>> _getApiList(String path) async {
-    final data = await _getApiData(path);
+  Future<List<Map<String, dynamic>>> _getApiList(String endpoint) async {
+    final data = await _getApiData(endpoint);
     if (data is List) {
       return data.whereType<Map<String, dynamic>>().toList();
     }
-    throw Exception('Respuesta inválida para $path.');
+    throw Exception('Respuesta inválida para $endpoint.');
   }
 
-  Future<Map<String, dynamic>> _postApiData(String path, Object payload) async {
-    final uri = Uri.parse('$_apiBaseUrl$path');
+  Future<Map<String, dynamic>> _postApiData(
+      String endpoint, Object payload) async {
+    final uri = Uri.parse(endpoint);
     final response = await http.post(
       uri,
       headers: _headers(),
@@ -437,8 +438,9 @@ class OrderProvider extends ChangeNotifier {
     return _unwrapResponse(response);
   }
 
-  Future<Map<String, dynamic>> _putApiData(String path, Object payload) async {
-    final uri = Uri.parse('$_apiBaseUrl$path');
+  Future<Map<String, dynamic>> _putApiData(
+      String endpoint, Object payload) async {
+    final uri = Uri.parse(endpoint);
     final response = await http.put(
       uri,
       headers: _headers(),

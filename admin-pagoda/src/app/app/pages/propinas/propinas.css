@@ -24,6 +24,28 @@
   font-size: 0.88rem;
 }
 
+.period-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+  margin-bottom: 1rem;
+}
+
+.secondary-btn {
+  border: 1px solid var(--border);
+  border-radius: 0.65rem;
+  background: var(--card);
+  color: var(--foreground);
+  padding: 0.48rem 0.85rem;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.secondary-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .date-field {
   display: flex;
   flex-direction: column;

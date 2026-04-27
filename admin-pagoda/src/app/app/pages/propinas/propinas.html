@@ -7,22 +7,53 @@
       (ngModelChange)="onPresetChange()"
       class="control-input"
     >
-      <option value="weekly">Semanal</option>
-      <option value="monthly">Mensual</option>
-      <option value="custom">Personalizado</option>
+      <option value="biweekly">Quincenal (15 días)</option>
     </select>
 
     <div class="date-field">
       <label for="startDate">Fecha de Inicio</label>
-      <input id="startDate" type="date" [(ngModel)]="startDate" (change)="onDateRangeChange()" />
+      <input
+        id="startDate"
+        type="date"
+        [(ngModel)]="startDate"
+        [step]="15"
+        [min]="quincenaBaseDate"
+        (change)="onDateRangeChange('start')"
+      />
     </div>
     <div class="date-field">
       <label for="endDate">Fecha de Fin</label>
-      <input id="endDate" type="date" [(ngModel)]="endDate" (change)="onDateRangeChange()" />
+      <input
+        id="endDate"
+        type="date"
+        [(ngModel)]="endDate"
+        [step]="15"
+        [min]="quincenaBaseDate"
+        (change)="onDateRangeChange('end')"
+      />
     </div>
   </div>
 
-  <p class="range-caption">Rango seleccionado: {{ rangeLabel() }}</p>
+  <div class="period-nav">
+    <button
+      type="button"
+      class="secondary-btn"
+      [disabled]="!canGoToPreviousPeriod()"
+      (click)="goToPreviousPeriod()"
+    >
+      ← 15 días
+    </button>
+    <button
+      type="button"
+      class="secondary-btn"
+      [disabled]="!canGoToNextPeriod()"
+      (click)="goToNextPeriod()"
+    >
+      15 días →
+    </button>
+  </div>
+
+  <p class="range-caption">Periodo quincenal: {{ rangeLabel() }}</p>
 
   <div class="tip-wrapper">
     <div class="tip-card">

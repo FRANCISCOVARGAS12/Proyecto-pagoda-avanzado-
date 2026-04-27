@@ -175,6 +175,19 @@ class _TableMapScreenState extends State<TableMapScreen>
               _showChangeGuestsDialog(context, table, provider);
             },
           ),
+          if (table.orders.isEmpty) ...[
+            const SizedBox(height: 12),
+            _OptionTile(
+              icon: Icons.highlight_off_outlined,
+              label: 'Cerrar mesa sin venta',
+              subtitle: 'Liberar mesa cuando no hubo consumo',
+              color: AppColors.ocupado,
+              onTap: () {
+                Navigator.pop(context);
+                _confirmCloseWithoutSale(context, table);
+              },
+            ),
+          ],
           const SizedBox(height: 12),
           GestureDetector(
             onTap: () => Navigator.pop(context),
@@ -770,6 +783,96 @@ class _TableMapScreenState extends State<TableMapScreen>
             ),
           );
         },
+      ),
+    );
+  }
+
+  void _confirmCloseWithoutSale(BuildContext context, BoardTable table) {
+    showDialog(
+      context: context,
+      barrierColor: Colors.black.withOpacity(0.8),
+      builder: (_) => Dialog(
+        backgroundColor: Colors.transparent,
+        child: Container(
+          padding: const EdgeInsets.all(28),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: AppColors.surfaceElevated),
+          ),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Icon(Icons.highlight_off_outlined,
+                size: 42, color: AppColors.ocupado.withOpacity(0.9)),
+            const SizedBox(height: 12),
+            Text(
+              'Cerrar sin venta',
+              style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w300,
+                  color: AppColors.gold,
+                  shadows: [
+                    Shadow(
+                        color: AppColors.gold.withOpacity(0.3), blurRadius: 10)
+                  ]),
+            ),
+            const SizedBox(height: 6),
+            Text(table.name,
+                style: const TextStyle(
+                    fontSize: 12,
+                    color: AppColors.textSecondary,
+                    fontWeight: FontWeight.w300)),
+            const SizedBox(height: 10),
+            const Text(
+              'La mesa se cerrará sin registrar venta.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                  fontSize: 12,
+                  color: AppColors.textMuted,
+                  fontWeight: FontWeight.w300),
+            ),
+            const SizedBox(height: 24),
+            GestureDetector(
+              onTap: () {
+                context.read<OrderProvider>().markTableFree(table);
+                Navigator.pop(context);
+              },
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                      colors: [AppColors.libre, Color(0xFF14B8A6)]),
+                  borderRadius: BorderRadius.circular(14),
+                  boxShadow: [
+                    BoxShadow(
+                        color: AppColors.libre.withOpacity(0.3),
+                        blurRadius: 16,
+                        offset: const Offset(0, 6))
+                  ],
+                ),
+                child: const Text('SÍ, CERRAR SIN VENTA',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        letterSpacing: 1.5,
+                        color: AppColors.background)),
+              ),
+            ),
+            const SizedBox(height: 10),
+            GestureDetector(
+              onTap: () => Navigator.pop(context),
+              child: const Padding(
+                padding: EdgeInsets.symmetric(vertical: 10),
+                child: Text('Cancelar',
+                    style: TextStyle(
+                        fontSize: 13,
+                        color: AppColors.textSecondary,
+                        fontWeight: FontWeight.w300)),
+              ),
+            ),
+          ]),
+        ),
       ),
     );
   }

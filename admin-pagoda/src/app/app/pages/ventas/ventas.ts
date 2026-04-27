@@ -86,6 +86,7 @@ export class Ventas implements OnInit {
   protected ordersData: OrderRow[] = [];
 
   private readonly expandedOrders = new Set<string>();
+  private jornadaAbiertaId: number | null = null;
 
   constructor(private readonly apiClient: ApiClientService) {}
 
@@ -424,7 +425,11 @@ export class Ventas implements OnInit {
 
   private async loadJornadas(): Promise<void> {
     try {
-      const jornadas = await this.apiClient.get<JornadaApi[]>('/api/operacion/jornadas');
+      const [jornadas, jornadaAbierta] = await Promise.all([
+        this.apiClient.get<JornadaApi[]>('/api/operacion/jornadas'),
+        this.apiClient.getOrNull<JornadaApi>('/api/operacion/jornadas/estado'),
+      ]);
+      this.jornadaAbiertaId = jornadaAbierta?.id ?? null;
       this.jornadas = [...jornadas].sort((a, b) => {
         if (a.fecha === b.fecha) {
           return b.id - a.id;
@@ -433,6 +438,7 @@ export class Ventas implements OnInit {
       });
       this.applyJornadaFilter();
     } catch (error) {
+      this.jornadaAbiertaId = null;
       this.jornadas = [];
       this.jornadasFiltradas = [];
       this.selectedJornadaId = null;
@@ -527,7 +533,7 @@ export class Ventas implements OnInit {
     }
 
     if (this.selectedJornadaId === null) {
-      this.selectedJornadaId = 'all';
+      this.selectedJornadaId = this.resolveDefaultJornadaSelection();
       return;
     }
 
@@ -535,8 +541,18 @@ export class Ventas implements OnInit {
       this.selectedJornadaId !== 'all' &&
       !this.jornadasFiltradas.some((jornada) => jornada.id === this.selectedJornadaId)
     ) {
-      this.selectedJornadaId = 'all';
+      this.selectedJornadaId = this.resolveDefaultJornadaSelection();
     }
+  }
+
+  private resolveDefaultJornadaSelection(): JornadaSelection {
+    if (
+      this.jornadaAbiertaId !== null &&
+      this.jornadasFiltradas.some((jornada) => jornada.id === this.jornadaAbiertaId)
+    ) {
+      return this.jornadaAbiertaId;
+    }
+    return 'all';
   }
 
   private getSelectedJornadas(): JornadaApi[] {

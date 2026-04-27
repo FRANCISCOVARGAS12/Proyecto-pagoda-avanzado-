@@ -2,7 +2,8 @@ import { Component, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ApiClientService } from '../../core/api/api-client.service';
 
-type RangePreset = 'weekly' | 'monthly' | 'custom';
+type RangePreset = 'biweekly';
+const BIWEEK_DAYS = 15;
 
 interface JornadaApi {
   id: number;
@@ -26,9 +27,11 @@ interface PagoApi {
   styleUrl: './propinas.css',
 })
 export class Propinas implements OnInit {
-  protected rangePreset: RangePreset = 'weekly';
+  protected rangePreset: RangePreset = 'biweekly';
   protected startDate = '';
   protected endDate = '';
+  protected quincenaBaseDate = '';
+  protected readonly todayIso = this.toIsoDate(new Date());
   protected jornadas: JornadaApi[] = [];
   protected jornadasFiltradas: JornadaApi[] = [];
   protected totalPropinas = 0;
@@ -37,23 +40,46 @@ export class Propinas implements OnInit {
   constructor(private readonly apiClient: ApiClientService) {}
 
   async ngOnInit(): Promise<void> {
-    this.applyPresetDates(this.rangePreset);
     await this.loadJornadas();
     await this.loadPropinas();
   }
 
   protected async onPresetChange(): Promise<void> {
-    if (this.rangePreset !== 'custom') {
-      this.applyPresetDates(this.rangePreset);
-    }
+    this.applyPresetDates(this.rangePreset);
     this.applyJornadaFilter();
     await this.loadPropinas();
   }
 
-  protected async onDateRangeChange(): Promise<void> {
-    this.rangePreset = 'custom';
+  protected async onDateRangeChange(source: 'start' | 'end'): Promise<void> {
+    const sourceDate = source === 'start' ? this.startDate : this.endDate;
+    const range = this.resolveQuincenaRange(sourceDate || this.startDate || this.endDate || this.todayIso);
+    this.startDate = range.start;
+    this.endDate = range.end;
     this.applyJornadaFilter();
     await this.loadPropinas();
+  }
+
+  protected async goToPreviousPeriod(): Promise<void> {
+    await this.shiftPeriod(-BIWEEK_DAYS);
+  }
+
+  protected async goToNextPeriod(): Promise<void> {
+    await this.shiftPeriod(BIWEEK_DAYS);
+  }
+
+  protected canGoToPreviousPeriod(): boolean {
+    if (!this.startDate || !this.quincenaBaseDate) {
+      return false;
+    }
+    return this.startDate > this.quincenaBaseDate;
+  }
+
+  protected canGoToNextPeriod(): boolean {
+    if (!this.startDate) {
+      return false;
+    }
+    const currentRange = this.resolveQuincenaRange(this.todayIso);
+    return this.startDate < currentRange.start;
   }
 
   protected rangeLabel(): string {
@@ -73,12 +99,26 @@ export class Propinas implements OnInit {
 
   private async loadJornadas(): Promise<void> {
     try {
-      const jornadas = await this.apiClient.get<JornadaApi[]>('/api/operacion/jornadas');
-      this.jornadas = [...jornadas].sort((a, b) => b.fecha.localeCompare(a.fecha));
+      const [jornadas, jornadaAbierta] = await Promise.all([
+        this.apiClient.get<JornadaApi[]>('/api/operacion/jornadas'),
+        this.apiClient.getOrNull<JornadaApi>('/api/operacion/jornadas/estado'),
+      ]);
+      this.jornadas = [...jornadas].sort((a, b) => {
+        if (a.fecha === b.fecha) {
+          return b.id - a.id;
+        }
+        return b.fecha.localeCompare(a.fecha);
+      });
+      this.quincenaBaseDate = this.resolveQuincenaBaseDate(this.jornadas);
+      this.applyPresetDates(this.rangePreset, jornadaAbierta?.fecha ?? this.todayIso);
       this.applyJornadaFilter();
     } catch (error) {
       this.jornadas = [];
       this.jornadasFiltradas = [];
+      this.quincenaBaseDate = this.todayIso;
+      const range = this.resolveQuincenaRange(this.todayIso);
+      this.startDate = range.start;
+      this.endDate = range.end;
       this.infoMessage =
         error instanceof Error && error.message
           ? error.message
@@ -134,19 +174,10 @@ export class Propinas implements OnInit {
     }
   }
 
-  private applyPresetDates(preset: RangePreset): void {
-    const today = new Date();
-    const end = this.toIsoDate(today);
-    const startDate = new Date(today);
-
-    if (preset === 'weekly') {
-      startDate.setDate(today.getDate() - 6);
-    } else if (preset === 'monthly') {
-      startDate.setDate(today.getDate() - 29);
-    }
-
-    this.endDate = end;
-    this.startDate = this.toIsoDate(startDate);
+  private applyPresetDates(_preset: RangePreset, referenceDate = this.todayIso): void {
+    const range = this.resolveQuincenaRange(referenceDate);
+    this.startDate = range.start;
+    this.endDate = range.end;
   }
 
   private applyJornadaFilter(): void {
@@ -173,5 +204,58 @@ export class Propinas implements OnInit {
     const month = `${date.getMonth() + 1}`.padStart(2, '0');
     const day = `${date.getDate()}`.padStart(2, '0');
     return `${year}-${month}-${day}`;
+  }
+
+  private resolveQuincenaBaseDate(jornadas: JornadaApi[]): string {
+    if (!jornadas.length) {
+      return this.todayIso;
+    }
+    return [...jornadas]
+      .sort((a, b) => {
+        if (a.fecha === b.fecha) {
+          return a.id - b.id;
+        }
+        return a.fecha.localeCompare(b.fecha);
+      })[0]
+      .fecha;
+  }
+
+  private resolveQuincenaRange(referenceDate: string): { start: string; end: string } {
+    const base = this.parseIsoDate(this.quincenaBaseDate || referenceDate || this.todayIso);
+    const candidate = this.parseIsoDate(referenceDate || this.todayIso);
+    const safeCandidate = candidate < base ? base : candidate;
+    const diffDays = Math.floor((safeCandidate.getTime() - base.getTime()) / (24 * 60 * 60 * 1000));
+    const blockStart = this.addDays(base, Math.floor(diffDays / BIWEEK_DAYS) * BIWEEK_DAYS);
+    const blockEnd = this.addDays(blockStart, BIWEEK_DAYS - 1);
+    return {
+      start: this.toIsoDate(blockStart),
+      end: this.toIsoDate(blockEnd),
+    };
+  }
+
+  private async shiftPeriod(deltaDays: number): Promise<void> {
+    if (!this.startDate) {
+      return;
+    }
+    const moved = this.addDays(this.parseIsoDate(this.startDate), deltaDays);
+    const range = this.resolveQuincenaRange(this.toIsoDate(moved));
+    this.startDate = range.start;
+    this.endDate = range.end;
+    this.applyJornadaFilter();
+    await this.loadPropinas();
+  }
+
+  private parseIsoDate(value: string): Date {
+    const parsed = new Date(`${value}T00:00:00`);
+    if (Number.isNaN(parsed.getTime())) {
+      return new Date(`${this.todayIso}T00:00:00`);
+    }
+    return parsed;
+  }
+
+  private addDays(baseDate: Date, days: number): Date {
+    const result = new Date(baseDate);
+    result.setDate(result.getDate() + days);
+    return result;
   }
 }
