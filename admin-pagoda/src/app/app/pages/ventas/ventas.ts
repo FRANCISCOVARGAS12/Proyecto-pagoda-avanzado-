@@ -94,7 +94,6 @@ export class Ventas implements OnInit {
   ) {}
 
   async ngOnInit(): Promise<void> {
-    this.applyPresetDates(this.rangePreset);
     await this.loadJornadas();
     this.changeDetector.detectChanges();
     await this.loadResumenVentas();
@@ -441,12 +440,23 @@ export class Ventas implements OnInit {
         }
         return fechaB.localeCompare(fechaA);
       });
-      const initialReferenceDate =
-        jornadaAbierta?.fecha ?? (this.jornadas.length ? this.jornadas[0].fecha : this.endDate);
-      if (initialReferenceDate) {
-        this.applyPresetDates(this.rangePreset, initialReferenceDate);
-      }
+
+      // Prioridad: 1. Abierta, 2. Última registrada, 3. Hoy
+      const referenceDate =
+        jornadaAbierta?.fecha ?? (this.jornadas.length ? this.jornadas[0].fecha : this.toIsoDate(new Date()));
+
+      const isoRef = this.normalizeDate(referenceDate);
+      this.startDate = isoRef;
+      this.endDate = isoRef;
+      this.rangePreset = 'custom';
+
       this.applyJornadaFilter();
+
+      if (this.jornadaAbiertaId) {
+        this.selectedJornadaId = this.jornadaAbiertaId;
+      } else if (this.jornadasFiltradas.length > 0) {
+        this.selectedJornadaId = this.jornadasFiltradas[0].id;
+      }
     } catch (error) {
       this.jornadaAbiertaId = null;
       this.jornadas = [];

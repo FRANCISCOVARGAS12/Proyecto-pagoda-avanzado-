@@ -125,9 +125,12 @@ export class Propinas implements OnInit {
         return fechaB.localeCompare(fechaA);
       });
       this.quincenaBaseDate = this.resolveQuincenaBaseDate(this.jornadas);
-      const initialReferenceDate =
+      
+      // Prioridad: 1. Abierta, 2. Hoy, 3. Última jornada
+      const referenceDate = 
         jornadaAbierta?.fecha ?? (this.jornadas.length ? this.jornadas[0].fecha : this.todayIso);
-      this.applyPresetDates(this.rangePreset, initialReferenceDate);
+      
+      this.applyPresetDates(this.rangePreset, referenceDate);
       this.applyJornadaFilter();
     } catch (error) {
       this.jornadas = [];
