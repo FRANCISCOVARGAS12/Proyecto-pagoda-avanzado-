@@ -1,4 +1,4 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, ChangeDetectorRef } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ApiClientService } from '../../core/api/api-client.service';
 
@@ -38,10 +38,14 @@ export class Propinas implements OnInit {
   protected infoMessage = '';
   private syncingRange = false;
 
-  constructor(private readonly apiClient: ApiClientService) {}
+  constructor(
+    private readonly apiClient: ApiClientService,
+    private readonly changeDetector: ChangeDetectorRef,
+  ) {}
 
   async ngOnInit(): Promise<void> {
     await this.loadJornadas();
+    this.changeDetector.detectChanges();
     await this.loadPropinas();
   }
 

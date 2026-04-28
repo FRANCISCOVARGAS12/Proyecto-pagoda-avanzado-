@@ -1,4 +1,4 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, ChangeDetectorRef } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ApiClientService } from '../../core/api/api-client.service';
 
@@ -88,11 +88,15 @@ export class Ventas implements OnInit {
   private readonly expandedOrders = new Set<string>();
   private jornadaAbiertaId: number | null = null;
 
-  constructor(private readonly apiClient: ApiClientService) {}
+  constructor(
+    private readonly apiClient: ApiClientService,
+    private readonly changeDetector: ChangeDetectorRef,
+  ) {}
 
   async ngOnInit(): Promise<void> {
     this.applyPresetDates(this.rangePreset);
     await this.loadJornadas();
+    this.changeDetector.detectChanges();
     await this.loadResumenVentas();
   }
 
