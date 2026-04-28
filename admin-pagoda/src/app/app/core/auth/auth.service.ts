@@ -26,6 +26,10 @@ export class AuthService {
   readonly userId = this.userIdSignal.asReadonly();
   readonly role = this.roleSignal.asReadonly();
 
+  isAdmin(): boolean {
+    return this.authenticatedSignal() && this.roleSignal() === 'ADMIN';
+  }
+
   constructor(private readonly apiClient: ApiClientService) {
     this.restoreSession();
   }

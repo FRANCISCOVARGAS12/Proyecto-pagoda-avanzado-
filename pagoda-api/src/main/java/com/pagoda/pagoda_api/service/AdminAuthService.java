@@ -39,6 +39,11 @@ public class AdminAuthService {
             throw new PagodaException(ErrorCode.PIN_INCORRECTO);
         }
 
+        // Verificar que el usuario sea ADMIN
+        if (usuario.getRol() == null || !"ADMIN".equalsIgnoreCase(usuario.getRol().getNombre())) {
+            throw new PagodaException(ErrorCode.TOKEN_INVALIDO);
+        }
+
         return crearSesion(usuario);
     }
 

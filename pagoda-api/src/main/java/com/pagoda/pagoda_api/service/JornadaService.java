@@ -6,12 +6,15 @@ import com.pagoda.pagoda_api.exception.ErrorCode;
 import com.pagoda.pagoda_api.exception.PagodaException;
 import com.pagoda.pagoda_api.repository.operacion.JornadaRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 @Service
@@ -22,6 +25,7 @@ public class JornadaService {
     private static final String ESTADO_CERRADA = "CERRADA";
 
     private final JornadaRepository jornadaRepository;
+    private final SimpMessagingTemplate messagingTemplate;
 
     public List<Jornada> listarTodas() {
         return jornadaRepository.findAll();
@@ -44,7 +48,17 @@ public class JornadaService {
         jornada.setHoraApertura(LocalDateTime.now());
         jornada.setHoraCierre(null);
         jornada.setEstado(ESTADO_ABIERTA);
-        return jornadaRepository.save(jornada);
+        Jornada saved = jornadaRepository.save(jornada);
+        
+        // Emit event to WebSocket subscribers
+        Map<String, Object> event = new HashMap<>();
+        event.put("event", "JORNADA_ABIERTA");
+        event.put("jornadaId", saved.getId());
+        event.put("fecha", saved.getFecha());
+        String message = event.toString();
+        messagingTemplate.convertAndSend("/topic/jornadas", (Object) message);
+        
+        return saved;
     }
 
     public Jornada cerrarJornada(Integer id) {
@@ -79,6 +93,16 @@ public class JornadaService {
                 .estado(ESTADO_ABIERTA)
                 .usuarioApertura(usuarioApertura)
                 .build();
-        return jornadaRepository.save(nueva);
+        Jornada saved = jornadaRepository.save(nueva);
+        
+        // Emit event to WebSocket subscribers
+        Map<String, Object> event = new HashMap<>();
+        event.put("event", "JORNADA_ABIERTA");
+        event.put("jornadaId", saved.getId());
+        event.put("fecha", saved.getFecha());
+        String message = event.toString();
+        messagingTemplate.convertAndSend("/topic/jornadas", (Object) message);
+        
+        return saved;
     }
 }

@@ -1,6 +1,7 @@
-import { Component, OnInit, ChangeDetectorRef } from '@angular/core';
+import { Component, OnInit, OnDestroy, ChangeDetectorRef, inject } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ApiClientService } from '../../core/api/api-client.service';
+import { WebSocketService } from '../../core/websocket/websocket.service';
 
 type RangePreset = 'weekly' | 'monthly' | 'custom';
 
@@ -38,7 +39,7 @@ interface TopProduct {
   templateUrl: './top5.html',
   styleUrl: './top5.css',
 })
-export class Top5 implements OnInit {
+export class Top5 implements OnInit, OnDestroy {
   protected rangePreset: RangePreset = 'weekly';
   protected startDate = '';
   protected endDate = '';
@@ -46,6 +47,7 @@ export class Top5 implements OnInit {
   protected jornadasFiltradas: JornadaApi[] = [];
   protected topProducts: TopProduct[] = [];
   protected infoMessage = '';
+  private readonly webSocketService = inject(WebSocketService);
 
   constructor(
     private readonly apiClient: ApiClientService,
@@ -57,6 +59,24 @@ export class Top5 implements OnInit {
     await this.loadJornadas();
     this.changeDetector.detectChanges();
     await this.loadTop5();
+    this.subscribeToVentaEvents();
+  }
+
+  ngOnDestroy(): void {
+    // WebSocket cleanup handled by service
+  }
+
+  private subscribeToVentaEvents(): void {
+    if (this.webSocketService.isConnected()) {
+      this.webSocketService.subscribe('/topic/ventas', async (event: any) => {
+        if (event.event === 'VENTA_CERRADA') {
+          console.log('📊 Venta cerrada - recargar top5:', event);
+          await this.loadJornadas();
+          this.changeDetector.detectChanges();
+          await this.loadTop5();
+        }
+      });
+    }
   }
 
   protected async onPresetChange(): Promise<void> {

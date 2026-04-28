@@ -5,11 +5,14 @@ import com.pagoda.pagoda_api.exception.ErrorCode;
 import com.pagoda.pagoda_api.exception.PagodaException;
 import com.pagoda.pagoda_api.repository.ventas.VentaRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -17,6 +20,7 @@ public class VentaService {
 
     private final VentaRepository ventaRepository;
     private final JornadaService jornadaService;
+    private final SimpMessagingTemplate messagingTemplate;
 
     public List<Venta> listarActivas() {
         return ventaRepository.findByFechaCierreIsNull();
@@ -55,6 +59,17 @@ public class VentaService {
             throw new PagodaException(ErrorCode.VENTA_YA_CERRADA);
         }
         venta.setFechaCierre(LocalDateTime.now());
-        return ventaRepository.save(venta);
+        Venta saved = ventaRepository.save(venta);
+        
+        // Emit event to WebSocket subscribers for tips/propinas update
+        Map<String, Object> event = new HashMap<>();
+        event.put("event", "VENTA_CERRADA");
+        event.put("ventaId", saved.getId());
+        event.put("jornadaId", saved.getJornada().getId());
+        event.put("fechaCierre", saved.getFechaCierre());
+        String message = event.toString();
+        messagingTemplate.convertAndSend("/topic/ventas", (Object) message);
+        
+        return saved;
     }
 }

@@ -1,6 +1,7 @@
-import { Component, OnInit, ChangeDetectorRef } from '@angular/core';
+import { Component, OnInit, OnDestroy, ChangeDetectorRef, inject } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ApiClientService } from '../../core/api/api-client.service';
+import { WebSocketService } from '../../core/websocket/websocket.service';
 
 type RangePreset = 'biweekly';
 const BIWEEK_DAYS = 15;
@@ -26,7 +27,7 @@ interface PagoApi {
   templateUrl: './propinas.html',
   styleUrl: './propinas.css',
 })
-export class Propinas implements OnInit {
+export class Propinas implements OnInit, OnDestroy {
   protected rangePreset: RangePreset = 'biweekly';
   protected startDate = '';
   protected endDate = '';
@@ -37,6 +38,7 @@ export class Propinas implements OnInit {
   protected totalPropinas = 0;
   protected infoMessage = '';
   private syncingRange = false;
+  private readonly webSocketService = inject(WebSocketService);
 
   constructor(
     private readonly apiClient: ApiClientService,
@@ -44,9 +46,33 @@ export class Propinas implements OnInit {
   ) {}
 
   async ngOnInit(): Promise<void> {
-    await this.loadJornadas();
-    this.changeDetector.detectChanges();
-    await this.loadPropinas();
+    // Intentar cargar las propinas de la quincena actual automáticamente
+    try {
+      await this.loadPropinaQuincena();
+    } catch {
+      // Si falla la quincena, caer a la carga tradicional
+      await this.loadJornadas();
+      this.changeDetector.detectChanges();
+      await this.loadPropinas();
+    }
+    this.subscribeToVentaEvents();
+  }
+
+  ngOnDestroy(): void {
+    // WebSocket cleanup handled by service
+  }
+
+  private subscribeToVentaEvents(): void {
+    if (this.webSocketService.isConnected()) {
+      this.webSocketService.subscribe('/topic/ventas', async (event: any) => {
+        if (event.event === 'VENTA_CERRADA') {
+          console.log('📊 Venta cerrada - recargar propinas:', event);
+          await this.loadJornadas();
+          this.changeDetector.detectChanges();
+          await this.loadPropinas();
+        }
+      });
+    }
   }
 
   protected async onPresetChange(): Promise<void> {
@@ -286,5 +312,29 @@ export class Propinas implements OnInit {
 
   private normalizeDate(rawDate: string): string {
     return (rawDate ?? '').toString().slice(0, 10);
+  }
+
+  private async loadPropinaQuincena(): Promise<void> {
+    try {
+      const response = await this.apiClient.get<any>('/api/reportes/propinas-diarias/quincena');
+      this.totalPropinas = Number(response.propinasQuincena ?? 0);
+      
+      // Aplicar los dates de la quincena actual
+      const today = new Date();
+      const dayOfMonth = today.getDate();
+      if (dayOfMonth <= 15) {
+        this.startDate = this.toIsoDate(new Date(today.getFullYear(), today.getMonth(), 1));
+        this.endDate = this.toIsoDate(new Date(today.getFullYear(), today.getMonth(), 15));
+      } else {
+        this.startDate = this.toIsoDate(new Date(today.getFullYear(), today.getMonth(), 16));
+        this.endDate = this.toIsoDate(new Date(today.getFullYear(), today.getMonth() + 1, 0));
+      }
+      
+      this.infoMessage = '';
+      this.changeDetector.detectChanges();
+    } catch (error) {
+      console.warn('Propinas quincenales no disponibles, usando carga tradicional');
+      throw error;
+    }
   }
 }

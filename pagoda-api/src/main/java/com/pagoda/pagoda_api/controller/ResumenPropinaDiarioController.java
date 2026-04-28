@@ -8,7 +8,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/reportes/propinas-diarias")
@@ -26,6 +28,16 @@ public class ResumenPropinaDiarioController {
     public ResponseEntity<ApiResponse<ResumenPropinaDiario>> crear(@RequestBody ResumenPropinaDiario payload) {
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.ok("Resumen de propinas generado", service.guardar(payload)));
+    }
+
+    @GetMapping("/quincena")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> obtenerQuincena() {
+        BigDecimal propinasQuincena = service.obtenerPropinasPorQuincena();
+        Map<String, Object> response = Map.of(
+                "propinasQuincena", propinasQuincena,
+                "moneda", "MXN"
+        );
+        return ResponseEntity.ok(ApiResponse.ok("Propinas de la quincena obtenidas", response));
     }
 }
 

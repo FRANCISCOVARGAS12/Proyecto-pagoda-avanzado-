@@ -45,6 +45,11 @@ export class JornadaService {
     this.jornadaAbiertaSignal.set(this.mapJornada(jornadaApi));
   }
 
+  // Alias para WebSocket
+  async refreshCurrentJornada(): Promise<void> {
+    return this.refreshJornada();
+  }
+
   async cerrarJornada(): Promise<{ ok: boolean; message: string }> {
     const jornada = this.jornadaAbiertaSignal();
 
