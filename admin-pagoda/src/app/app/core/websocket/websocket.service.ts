@@ -9,9 +9,7 @@ export class WebSocketService {
   private client: Client | null = null;
   private connected = false;
 
-  constructor() {
-    // Don't initialize in constructor - wait for connect()
-  }
+  constructor() {}
 
   connect(): Promise<void> {
     return new Promise((resolve) => {
@@ -21,27 +19,28 @@ export class WebSocketService {
       }
 
       try {
-        // Determine WebSocket URL based on environment
-        let wsUrl: string;
+        // Para SockJS usamos http/https, NO ws/wss
+        let serverUrl: string;
         if (window.location.hostname === 'localhost') {
-          // Local development
-          wsUrl = 'ws://localhost:8080/ws-pagoda';
+          serverUrl = 'http://localhost:8080/ws-pagoda';
         } else {
-          // Production - connect to Render backend
-          wsUrl = 'wss://pagoda-api-v1-1.onrender.com/ws-pagoda';
+          serverUrl = 'https://pagoda-api-v1-1.onrender.com/ws-pagoda';
         }
 
         this.client = new Client({
-          brokerURL: wsUrl,
-          connectHeaders: {},
+          // CLAVE: Usamos webSocketFactory porque el back tiene .withSockJS()
+          webSocketFactory: () => new SockJS(serverUrl),
           reconnectDelay: 5000,
           heartbeatIncoming: 4000,
           heartbeatOutgoing: 4000,
+          debug: (str) => {
+            console.log('STOMP Debug: ' + str);
+          }
         });
 
         this.client.onConnect = () => {
           this.connected = true;
-          console.log('✅ WebSocket conectado a:', wsUrl);
+          console.log('✅ WebSocket conectado exitosamente a:', serverUrl);
           resolve();
         };
 
@@ -52,22 +51,20 @@ export class WebSocketService {
 
         this.client.onStompError = (frame: any) => {
           console.error('❌ Error STOMP:', frame.body);
-          // No rechazar, solo log - permite que la app continúe
           resolve();
         };
 
         this.client.activate();
-        
-        // Timeout para no bloquear la app
+
         setTimeout(() => {
           if (!this.connected) {
-            console.warn('WebSocket no disponible, continuando sin tiempo real');
+            console.warn('WebSocket no disponible a tiempo, continuando...');
             resolve();
           }
-        }, 3000);
+        }, 5000); // Aumentamos a 5s por si Render tarda en responder
       } catch (error) {
         console.warn('No se pudo inicializar WebSocket:', error);
-        resolve(); // No rechazar para que la app siga funcionando
+        resolve();
       }
     });
   }
@@ -75,7 +72,7 @@ export class WebSocketService {
   subscribe(destination: string, callback: (message: any) => void): void {
     if (!this.client || !this.connected) {
       console.warn('WebSocket no conectado, saltando subscripción a', destination);
-      return; // Silenciosamente ignorar si no está conectado
+      return;
     }
 
     try {
