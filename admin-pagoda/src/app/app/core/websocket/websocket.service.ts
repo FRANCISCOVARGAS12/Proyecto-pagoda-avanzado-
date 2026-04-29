@@ -6,64 +6,88 @@ import SockJS from 'sockjs-client';
   providedIn: 'root'
 })
 export class WebSocketService {
-  private client: Client;
+  private client: Client | null = null;
   private connected = false;
 
   constructor() {
-    this.client = new Client({
-      brokerURL: 'ws://localhost:8080/ws-pagoda',
-      connectHeaders: {},
-      reconnectDelay: 5000,
-      heartbeatIncoming: 4000,
-      heartbeatOutgoing: 4000,
-    });
-
-    this.client.onConnect = () => {
-      this.connected = true;
-      console.log('✅ WebSocket conectado');
-    };
-
-    this.client.onDisconnect = () => {
-      this.connected = false;
-      console.log('❌ WebSocket desconectado');
-    };
-
-    this.client.onStompError = (frame: any) => {
-      console.error('❌ Error STOMP:', frame.body);
-    };
+    // Don't initialize in constructor - wait for connect()
   }
 
   connect(): Promise<void> {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       if (this.connected) {
         resolve();
-      } else {
+        return;
+      }
+
+      try {
+        // Detect if running on localhost (dev) or production
+        const host = window.location.hostname;
+        const port = window.location.port;
+        const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+        const wsUrl = host === 'localhost' 
+          ? 'ws://localhost:8080/ws-pagoda'
+          : `${protocol}://${host}:${port}/ws-pagoda`;
+
+        this.client = new Client({
+          brokerURL: wsUrl,
+          connectHeaders: {},
+          reconnectDelay: 5000,
+          heartbeatIncoming: 4000,
+          heartbeatOutgoing: 4000,
+        });
+
         this.client.onConnect = () => {
           this.connected = true;
-          console.log('✅ WebSocket conectado');
+          console.log('✅ WebSocket conectado a:', wsUrl);
           resolve();
         };
+
+        this.client.onDisconnect = () => {
+          this.connected = false;
+          console.log('❌ WebSocket desconectado');
+        };
+
+        this.client.onStompError = (frame: any) => {
+          console.error('❌ Error STOMP:', frame.body);
+          // No rechazar, solo log - permite que la app continúe
+          resolve();
+        };
+
         this.client.activate();
-        setTimeout(() => reject(new Error('WebSocket connection timeout')), 5000);
+        
+        // Timeout para no bloquear la app
+        setTimeout(() => {
+          if (!this.connected) {
+            console.warn('WebSocket no disponible, continuando sin tiempo real');
+            resolve();
+          }
+        }, 3000);
+      } catch (error) {
+        console.warn('No se pudo inicializar WebSocket:', error);
+        resolve(); // No rechazar para que la app siga funcionando
       }
     });
   }
 
   subscribe(destination: string, callback: (message: any) => void): void {
-    if (!this.connected) {
-      console.warn('WebSocket no conectado, reintentando subscripción...');
-      this.connect().then(() => this.subscribe(destination, callback));
-      return;
+    if (!this.client || !this.connected) {
+      console.warn('WebSocket no conectado, saltando subscripción a', destination);
+      return; // Silenciosamente ignorar si no está conectado
     }
 
-    this.client.subscribe(destination, (message: any) => {
-      try {
-        const body = JSON.parse(message.body);
-        callback(body);
-      } catch (e) {
-        console.error('Error parsing WebSocket message:', e);
-      }
-    });
+    try {
+      this.client.subscribe(destination, (message: any) => {
+        try {
+          const body = JSON.parse(message.body);
+          callback(body);
+        } catch (e) {
+          console.error('Error parsing WebSocket message:', e);
+        }
+      });
+    } catch (error) {
+      console.warn('Error subscribiendo a', destination, error);
+    }
   }
 
   disconnect(): void {
