@@ -9,7 +9,9 @@ export class WebSocketService {
   private client: Client | null = null;
   private connected = false;
 
-  constructor() {}
+  constructor() {
+    console.log('🚀 WebSocketService inicializado');
+  }
 
   connect(): Promise<void> {
     return new Promise((resolve) => {
@@ -19,7 +21,6 @@ export class WebSocketService {
       }
 
       try {
-        // Para SockJS usamos http/https, NO ws/wss
         let serverUrl: string;
         if (window.location.hostname === 'localhost') {
           serverUrl = 'http://localhost:8080/ws-pagoda';
@@ -27,8 +28,9 @@ export class WebSocketService {
           serverUrl = 'https://pagoda-api-v1-1.onrender.com/ws-pagoda';
         }
 
+        console.log('Wait... Intentando conectar a:', serverUrl);
+
         this.client = new Client({
-          // CLAVE: Usamos webSocketFactory porque el back tiene .withSockJS()
           webSocketFactory: () => new SockJS(serverUrl),
           reconnectDelay: 5000,
           heartbeatIncoming: 4000,
@@ -40,7 +42,7 @@ export class WebSocketService {
 
         this.client.onConnect = () => {
           this.connected = true;
-          console.log('✅ WebSocket conectado exitosamente a:', serverUrl);
+          console.log('✅ WebSocket conectado exitosamente');
           resolve();
         };
 
@@ -58,12 +60,12 @@ export class WebSocketService {
 
         setTimeout(() => {
           if (!this.connected) {
-            console.warn('WebSocket no disponible a tiempo, continuando...');
+            console.warn('WebSocket tardando más de lo esperado...');
             resolve();
           }
-        }, 5000); // Aumentamos a 5s por si Render tarda en responder
+        }, 6000);
       } catch (error) {
-        console.warn('No se pudo inicializar WebSocket:', error);
+        console.warn('Error al inicializar cliente WebSocket:', error);
         resolve();
       }
     });
@@ -71,22 +73,12 @@ export class WebSocketService {
 
   subscribe(destination: string, callback: (message: any) => void): void {
     if (!this.client || !this.connected) {
-      console.warn('WebSocket no conectado, saltando subscripción a', destination);
+      console.warn('No se puede subscribir, socket no listo');
       return;
     }
-
-    try {
-      this.client.subscribe(destination, (message: any) => {
-        try {
-          const body = JSON.parse(message.body);
-          callback(body);
-        } catch (e) {
-          console.error('Error parsing WebSocket message:', e);
-        }
-      });
-    } catch (error) {
-      console.warn('Error subscribiendo a', destination, error);
-    }
+    this.client.subscribe(destination, (message: any) => {
+      callback(JSON.parse(message.body));
+    });
   }
 
   disconnect(): void {
