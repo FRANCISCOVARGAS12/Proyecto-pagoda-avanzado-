@@ -21,13 +21,15 @@ export class WebSocketService {
       }
 
       try {
-        // Detect if running on localhost (dev) or production
-        const host = window.location.hostname;
-        const port = window.location.port;
-        const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-        const wsUrl = host === 'localhost' 
-          ? 'ws://localhost:8080/ws-pagoda'
-          : `${protocol}://${host}:${port}/ws-pagoda`;
+        // Determine WebSocket URL based on environment
+        let wsUrl: string;
+        if (window.location.hostname === 'localhost') {
+          // Local development
+          wsUrl = 'ws://localhost:8080/ws-pagoda';
+        } else {
+          // Production - connect to Render backend
+          wsUrl = 'wss://pagoda-api-v1-1.onrender.com/ws-pagoda';
+        }
 
         this.client = new Client({
           brokerURL: wsUrl,
