@@ -19,13 +19,8 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
         registry
-            .addEndpoint("/ws-pagoda")
-            .setAllowedOrigins(
-                "http://localhost:4200",
-                "http://localhost:5173",
-                "https://franciscovargas12.github.io",
-                "https://paquinhodevv.github.io"
-            )
-            .withSockJS();
+                .addEndpoint("/ws-pagoda")
+                .setAllowedOriginPatterns("*") // Permite la conexión desde GitHub Pages sin importar la URL exacta
+                .withSockJS();
     }
 }
