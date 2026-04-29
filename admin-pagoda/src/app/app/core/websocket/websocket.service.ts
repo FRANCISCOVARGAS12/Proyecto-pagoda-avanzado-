@@ -1,6 +1,5 @@
 import { Injectable } from '@angular/core';
 import { Client } from '@stomp/stompjs';
-import SockJS from 'sockjs-client';
 
 @Injectable({
   providedIn: 'root'
@@ -23,15 +22,15 @@ export class WebSocketService {
       try {
         let serverUrl: string;
         if (window.location.hostname === 'localhost') {
-          serverUrl = 'http://localhost:8080/ws-pagoda';
+          serverUrl = 'ws://localhost:8080/ws-pagoda';
         } else {
-          serverUrl = 'https://pagoda-api-v1-1.onrender.com/ws-pagoda';
+          serverUrl = 'wss://pagoda-api-v1-1.onrender.com/ws-pagoda';
         }
 
         console.log('Wait... Intentando conectar a:', serverUrl);
 
         this.client = new Client({
-          webSocketFactory: () => new SockJS(serverUrl),
+          brokerURL: serverUrl,
           reconnectDelay: 5000,
           heartbeatIncoming: 4000,
           heartbeatOutgoing: 4000,
