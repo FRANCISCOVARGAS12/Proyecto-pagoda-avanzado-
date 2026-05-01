@@ -52,6 +52,7 @@ export class WebSocketService {
 
         this.client.activate();
 
+        // Timeout de seguridad (6 segundos) por si la conexión tarda demasiado
         setTimeout(() => {
           if (!this.connected) {
             console.warn('WebSocket tardando más de lo esperado...');
