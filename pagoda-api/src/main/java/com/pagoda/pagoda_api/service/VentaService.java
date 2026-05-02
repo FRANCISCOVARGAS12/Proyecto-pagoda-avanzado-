@@ -10,7 +10,6 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -50,7 +49,13 @@ public class VentaService {
         venta.setFechaCreacion(LocalDateTime.now());
         venta.setFechaCierre(null);
         venta.setTotalCuenta(venta.getTotalCuenta() == null ? BigDecimal.ZERO : venta.getTotalCuenta());
-        return ventaRepository.save(venta);
+        Venta saved = ventaRepository.save(venta);
+
+        // Publicar evento de pedido creado
+        messagingTemplate.convertAndSend("/topic/pedido",
+                (Object) Map.of("accion", "CREADO", "pedido", saved));
+
+        return saved;
     }
 
     public Venta cerrar(Integer id) {
@@ -60,16 +65,11 @@ public class VentaService {
         }
         venta.setFechaCierre(LocalDateTime.now());
         Venta saved = ventaRepository.save(venta);
-        
-        // Emit event to WebSocket subscribers for tips/propinas update
-        Map<String, Object> event = new HashMap<>();
-        event.put("event", "VENTA_CERRADA");
-        event.put("ventaId", saved.getId());
-        event.put("jornadaId", saved.getJornada().getId());
-        event.put("fechaCierre", saved.getFechaCierre());
-        String message = event.toString();
-        messagingTemplate.convertAndSend("/topic/ventas", (Object) message);
-        
+
+        // Publicar evento de pedido cerrado (reemplaza la antigua publicación a /topic/ventas)
+        messagingTemplate.convertAndSend("/topic/pedido",
+                (Object) Map.of("accion", "CERRADO", "pedido", saved));
+
         return saved;
     }
 }

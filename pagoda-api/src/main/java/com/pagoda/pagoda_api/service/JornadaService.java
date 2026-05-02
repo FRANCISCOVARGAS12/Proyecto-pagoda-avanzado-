@@ -12,7 +12,6 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -49,15 +48,11 @@ public class JornadaService {
         jornada.setHoraCierre(null);
         jornada.setEstado(ESTADO_ABIERTA);
         Jornada saved = jornadaRepository.save(jornada);
-        
-        // Emit event to WebSocket subscribers
-        Map<String, Object> event = new HashMap<>();
-        event.put("event", "JORNADA_ABIERTA");
-        event.put("jornadaId", saved.getId());
-        event.put("fecha", saved.getFecha());
-        String message = event.toString();
-        messagingTemplate.convertAndSend("/topic/jornadas", (Object) message);
-        
+
+        // Notificar a los dashboards
+        messagingTemplate.convertAndSend("/topic/jornada",
+                (Object) Map.of("accion", "ABIERTA", "jornada", saved));
+
         return saved;
     }
 
@@ -68,7 +63,13 @@ public class JornadaService {
         }
         jornada.setEstado(ESTADO_CERRADA);
         jornada.setHoraCierre(LocalDateTime.now());
-        return jornadaRepository.save(jornada);
+        Jornada cerrada = jornadaRepository.save(jornada);
+
+        // Notificar que la jornada se ha cerrado
+        messagingTemplate.convertAndSend("/topic/jornada",
+                (Object) Map.of("accion", "CERRADA", "jornada", cerrada));
+
+        return cerrada;
     }
 
     public Jornada asegurarJornadaActiva(Usuario usuarioApertura) {
@@ -80,9 +81,14 @@ public class JornadaService {
             if (hoy.equals(jornadaAbierta.getFecha())) {
                 return jornadaAbierta;
             }
+            // Cerrar jornada anterior automáticamente
             jornadaAbierta.setEstado(ESTADO_CERRADA);
             jornadaAbierta.setHoraCierre(LocalDateTime.now());
-            jornadaRepository.save(jornadaAbierta);
+            Jornada cerrada = jornadaRepository.save(jornadaAbierta);
+
+            // Notificar cierre de la anterior
+            messagingTemplate.convertAndSend("/topic/jornada",
+                    (Object) Map.of("accion", "CERRADA", "jornada", cerrada));
         }
 
         Jornada nueva = Jornada.builder()
@@ -94,15 +100,11 @@ public class JornadaService {
                 .usuarioApertura(usuarioApertura)
                 .build();
         Jornada saved = jornadaRepository.save(nueva);
-        
-        // Emit event to WebSocket subscribers
-        Map<String, Object> event = new HashMap<>();
-        event.put("event", "JORNADA_ABIERTA");
-        event.put("jornadaId", saved.getId());
-        event.put("fecha", saved.getFecha());
-        String message = event.toString();
-        messagingTemplate.convertAndSend("/topic/jornadas", (Object) message);
-        
+
+        // Notificar apertura de la nueva
+        messagingTemplate.convertAndSend("/topic/jornada",
+                (Object) Map.of("accion", "ABIERTA", "jornada", saved));
+
         return saved;
     }
 }

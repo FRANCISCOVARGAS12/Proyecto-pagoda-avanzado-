@@ -1,6 +1,7 @@
 import { Component, OnInit, ChangeDetectorRef } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ApiClientService } from '../../core/api/api-client.service';
+import { WebSocketService } from '../../core/websocket/websocket.service';
 
 type RangePreset = 'weekly' | 'monthly' | 'custom';
 type JornadaSelection = number | 'all';
@@ -87,16 +88,74 @@ export class Ventas implements OnInit {
 
   private readonly expandedOrders = new Set<string>();
   private jornadaAbiertaId: number | null = null;
+  jornadaAbierta = false;
 
   constructor(
     private readonly apiClient: ApiClientService,
     private readonly changeDetector: ChangeDetectorRef,
+    private readonly wsService: WebSocketService,
   ) {}
 
   async ngOnInit(): Promise<void> {
     await this.loadJornadas();
+
+    // Inicializar el estado según la respuesta del API
+    this.jornadaAbierta = this.jornadaAbiertaId !== null;
+
     this.changeDetector.detectChanges();
     await this.loadResumenVentas();
+
+    // Activar actualizaciones en tiempo real
+    this.subscribeToWebSocket();
+  }
+
+  // NUEVO: suscripciones a eventos de jornada y pedido
+  private subscribeToWebSocket(): void {
+    // Escuchar cambios de jornada (abrir/cerrar)
+    this.wsService.subscribe('/topic/jornada', (event: any) => {
+      if (event.accion === 'ABIERTA' && event.jornada) {
+        const nueva: JornadaApi = event.jornada;
+        // Evitar duplicados
+        if (!this.jornadas.some(j => j.id === nueva.id)) {
+          this.jornadas = [nueva, ...this.jornadas];
+        } else {
+          // Actualizar estado a ABIERTA
+          this.jornadas = this.jornadas.map(j => j.id === nueva.id ? nueva : j);
+        }
+        // Seleccionar automáticamente la jornada recién abierta
+        this.selectedJornadaId = nueva.id;
+        this.loadResumenVentas();
+      } else if (event.accion === 'CERRADA' && event.jornada) {
+        const cerrada: JornadaApi = event.jornada;
+        this.jornadas = this.jornadas.map(j =>
+          j.id === cerrada.id ? { ...j, estado: 'CERRADA' } : j
+        );
+        // Si era la seleccionada, recargar para reflejar el cambio
+        if (this.selectedJornadaId === cerrada.id) {
+          this.loadResumenVentas();
+        }
+      }
+    });
+
+    // Escuchar nuevos pedidos/cierre de pedidos
+    this.wsService.subscribe('/topic/pedido', (event: any) => {
+      // event: { accion: 'CREADO'|'CERRADO', pedido: { id, jornada: { id }, ... } }
+      if (!event.pedido || !event.pedido.jornada?.id) return;
+      const jornadaIdPedido = event.pedido.jornada.id;
+
+      // Determinar si el pedido afecta a la vista actual
+      if (this.selectedJornadaId === 'all' || this.selectedJornadaId === null) {
+        // Modo rango: comprobar si la jornada del pedido está en el rango actual
+        const estaEnRango = this.jornadasFiltradas.some(j => j.id === jornadaIdPedido);
+        if (!estaEnRango) return;
+      } else {
+        // Modo jornada específica: solo recargar si coincide
+        if (this.selectedJornadaId !== jornadaIdPedido) return;
+      }
+
+      // Recargar los pedidos (seguro y simple)
+      this.loadResumenVentas();
+    });
   }
 
   protected async onPresetChange(): Promise<void> {
@@ -114,11 +173,12 @@ export class Ventas implements OnInit {
   }
 
   protected async onJornadaChange(): Promise<void> {
+    // Si es una jornada concreta, carga directa (getSelectedJornadas la encuentra)
     await this.loadResumenVentas();
   }
 
   protected jornadaLabel(jornada: JornadaApi): string {
-    return `#${jornada.id} · ${this.normalizeDate(jornada.fecha)} · ${jornada.estado}`;
+    return `#${jornada.id} · ${this.formatDate(jornada.fecha)} · ${jornada.estado}`;
   }
 
   protected selectedScopeLabel(): string {
@@ -128,7 +188,8 @@ export class Ventas implements OnInit {
     if (this.selectedJornadaId === 'all' || this.selectedJornadaId === null) {
       return `${this.jornadasFiltradas.length} jornada(s) del rango`;
     }
-    const jornada = this.jornadasFiltradas.find((item) => item.id === this.selectedJornadaId);
+    // Buscar en todas las jornadas (no solo filtradas)
+    const jornada = this.jornadas.find((item) => item.id === this.selectedJornadaId);
     return jornada ? this.jornadaLabel(jornada) : 'Jornada no disponible';
   }
 
@@ -137,10 +198,14 @@ export class Ventas implements OnInit {
     if (!start || !end) {
       return 'Sin rango definido';
     }
+    const fmt = (iso: string) => {
+      const [y, m, d] = iso.split('-');
+      return `${d}/${m}/${y}`;
+    };
     if (start === end) {
-      return start;
+      return fmt(start);
     }
-    return `${start} a ${end}`;
+    return `${fmt(start)} a ${fmt(end)}`;
   }
 
   protected async exportPdf(): Promise<void> {
@@ -398,7 +463,7 @@ export class Ventas implements OnInit {
             this.apiClient.get<PagoApi[]>(`/api/ventas/pagos/venta/${venta.id}`),
           ]);
           const jornadaFechaRaw = jornadaFechaById.get(venta.jornada?.id ?? -1) ?? 'Sin fecha';
-          const jornadaFecha = jornadaFechaRaw === 'Sin fecha' ? jornadaFechaRaw : this.normalizeDate(jornadaFechaRaw);
+          const jornadaFecha = jornadaFechaRaw === 'Sin fecha' ? jornadaFechaRaw : this.formatDate(jornadaFechaRaw);
           return this.mapOrder(venta, items, pagos, jornadaFecha);
         }),
       );
@@ -433,8 +498,8 @@ export class Ventas implements OnInit {
       ]);
       this.jornadaAbiertaId = jornadaAbierta?.id ?? null;
       this.jornadas = [...jornadas].sort((a, b) => {
-        const fechaA = this.normalizeDate(a.fecha);
-        const fechaB = this.normalizeDate(b.fecha);
+        const fechaA = this.isoDateKey(a.fecha);
+        const fechaB = this.isoDateKey(b.fecha);
         if (fechaA === fechaB) {
           return b.id - a.id;
         }
@@ -445,7 +510,7 @@ export class Ventas implements OnInit {
       const referenceDate =
         jornadaAbierta?.fecha ?? (this.jornadas.length ? this.jornadas[0].fecha : this.toIsoDate(new Date()));
 
-      const isoRef = this.normalizeDate(referenceDate);
+      const isoRef = this.isoDateKey(referenceDate);
       this.startDate = isoRef;
       this.endDate = isoRef;
       this.rangePreset = 'custom';
@@ -544,7 +609,7 @@ export class Ventas implements OnInit {
       if (!start || !end) {
         return true;
       }
-      const jornadaDate = this.normalizeDate(jornada.fecha);
+      const jornadaDate = this.isoDateKey(jornada.fecha);
       return jornadaDate >= start && jornadaDate <= end;
     });
 
@@ -577,13 +642,11 @@ export class Ventas implements OnInit {
   }
 
   private getSelectedJornadas(): JornadaApi[] {
-    if (!this.jornadasFiltradas.length) {
-      return [];
-    }
     if (this.selectedJornadaId === 'all' || this.selectedJornadaId === null) {
-      return this.jornadasFiltradas;
+      return this.jornadasFiltradas.length ? this.jornadasFiltradas : [];
     }
-    const jornada = this.jornadasFiltradas.find((item) => item.id === this.selectedJornadaId);
+    // Buscar en todas las jornadas (no solo filtradas) para permitir selección manual
+    const jornada = this.jornadas.find((item) => item.id === this.selectedJornadaId);
     return jornada ? [jornada] : [];
   }
 
@@ -603,16 +666,29 @@ export class Ventas implements OnInit {
     return `${year}-${month}-${day}`;
   }
 
-  private normalizeDate(rawDate: string): string {
+  // Devuelve la fecha en formato ISO (yyyy-mm-dd) para comparaciones internas
+  private isoDateKey(rawDate: string): string {
     return (rawDate ?? '').toString().slice(0, 10);
   }
 
+  // Formatea una fecha ISO a dd/mm/yyyy para mostrar al usuario
+  private formatDate(rawDate: string): string {
+    const iso = this.isoDateKey(rawDate);
+    if (!iso || iso.length < 10) return iso;
+    const [y, m, d] = iso.split('-');
+    return `${d}/${m}/${y}`;
+  }
+
   private parseIsoDate(rawDate: string): Date {
-    const normalized = this.normalizeDate(rawDate);
+    const normalized = this.isoDateKey(rawDate);
     const parsed = new Date(`${normalized}T00:00:00`);
     if (Number.isNaN(parsed.getTime())) {
       return new Date();
     }
     return parsed;
   }
+
+
+
+
 }

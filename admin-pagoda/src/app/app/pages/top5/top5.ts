@@ -1,36 +1,15 @@
-import { Component, OnInit, OnDestroy, ChangeDetectorRef, inject } from '@angular/core';
+import { Component, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ApiClientService } from '../../core/api/api-client.service';
 import { WebSocketService } from '../../core/websocket/websocket.service';
 
 type RangePreset = 'weekly' | 'monthly' | 'custom';
 
-interface JornadaApi {
-  id: number;
-  fecha: string;
-  estado: 'ABIERTA' | 'CERRADA' | string;
-}
-
-interface VentaApi {
-  id: number;
-}
-
-interface ItemVentaApi {
-  producto: {
-    id: number;
-    nombre: string;
-    categoria: { nombre: string } | null;
-  } | null;
-  cantidad: number;
-  precioUnitario: number;
-}
-
-interface TopProduct {
-  rank: number;
+interface PlatilloTop {
   nombre: string;
-  categoria: string;
-  cantidad: number;
-  total: number;
+  categoria?: string;
+  cantidadVendida: number;
+  totalGenerado: number;
 }
 
 @Component({
@@ -39,207 +18,136 @@ interface TopProduct {
   templateUrl: './top5.html',
   styleUrl: './top5.css',
 })
-export class Top5 implements OnInit, OnDestroy {
-  protected rangePreset: RangePreset = 'weekly';
-  protected startDate = '';
-  protected endDate = '';
-  protected jornadas: JornadaApi[] = [];
-  protected jornadasFiltradas: JornadaApi[] = [];
-  protected topProducts: TopProduct[] = [];
-  protected infoMessage = '';
-  private readonly webSocketService = inject(WebSocketService);
+export class Top5Component implements OnInit {
+  // Filtros de rango
+  rangePreset: RangePreset = 'custom';
+  startDate = '';
+  endDate = '';
+
+  // Datos
+  top5: PlatilloTop[] = [];
+  cargando = false;
+  infoMessage = '';
 
   constructor(
-    private readonly apiClient: ApiClientService,
-    private readonly changeDetector: ChangeDetectorRef,
+    private apiClient: ApiClientService,
+    private wsService: WebSocketService
   ) {}
 
-  async ngOnInit(): Promise<void> {
-    this.applyPresetDates(this.rangePreset);
-    await this.loadJornadas();
-    this.changeDetector.detectChanges();
-    await this.loadTop5();
-    this.subscribeToVentaEvents();
+  async ngOnInit() {
+    // Inicializar rango: por defecto, el día de la jornada activa o hoy
+    await this.inicializarRango();
+    await this.cargarTop5();
+    this.suscribirActualizaciones();
   }
 
-  ngOnDestroy(): void {
-    // WebSocket cleanup handled by service
-  }
-
-  private subscribeToVentaEvents(): void {
-    if (this.webSocketService.isConnected()) {
-      this.webSocketService.subscribe('/topic/ventas', async (event: any) => {
-        if (event.event === 'VENTA_CERRADA') {
-          console.log('📊 Venta cerrada - recargar top5:', event);
-          await this.loadJornadas();
-          this.changeDetector.detectChanges();
-          await this.loadTop5();
-        }
-      });
+  // ------------------------------------------------------------
+  // Rango de fechas
+  // ------------------------------------------------------------
+  private async inicializarRango() {
+    try {
+      const jornada = await this.apiClient.getOrNull<any>('/api/operacion/jornadas/estado');
+      const fechaRef = jornada?.fecha?.slice(0, 10) ?? this.hoyISO();
+      this.startDate = fechaRef;
+      this.endDate = fechaRef;
+      this.rangePreset = 'custom'; // se muestra como personalizado
+    } catch {
+      const hoy = this.hoyISO();
+      this.startDate = hoy;
+      this.endDate = hoy;
     }
   }
 
-  protected async onPresetChange(): Promise<void> {
-    if (this.rangePreset !== 'custom') {
-      this.applyPresetDates(this.rangePreset);
+  onPresetChange() {
+    if (this.rangePreset === 'weekly') {
+      this.aplicarDias(-6);
+    } else if (this.rangePreset === 'monthly') {
+      this.aplicarDias(-29);
     }
-    this.applyJornadaFilter();
-    await this.loadTop5();
+    // si es 'custom', no tocamos las fechas
+    this.cargarTop5();
   }
 
-  protected async onDateRangeChange(): Promise<void> {
+  onDateRangeChange() {
     this.rangePreset = 'custom';
-    this.applyJornadaFilter();
-    await this.loadTop5();
+    this.cargarTop5();
   }
 
-  protected rangeLabel(): string {
-    const { start, end } = this.normalizedRange();
-    if (!start || !end) {
-      return 'Sin rango definido';
-    }
-    if (start === end) {
-      return start;
-    }
-    return `${start} a ${end}`;
+  private aplicarDias(dias: number) {
+    const fin = new Date();
+    const inicio = new Date();
+    inicio.setDate(fin.getDate() + dias);
+    this.endDate = this.toISO(fin);
+    this.startDate = this.toISO(inicio);
   }
 
-  protected fmt(n: number): string {
-    return `$${n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
-  }
-
-  private async loadJornadas(): Promise<void> {
-    try {
-      const jornadas = await this.apiClient.get<JornadaApi[]>('/api/operacion/jornadas');
-      this.jornadas = [...jornadas].sort((a, b) => b.fecha.localeCompare(a.fecha));
-      this.applyJornadaFilter();
-    } catch (error) {
-      this.jornadas = [];
-      this.jornadasFiltradas = [];
-      this.infoMessage =
-        error instanceof Error && error.message
-          ? error.message
-          : 'No se pudieron cargar las jornadas.';
-    }
-  }
-
-  private async loadTop5(): Promise<void> {
+  // ------------------------------------------------------------
+  // Carga de datos
+  // ------------------------------------------------------------
+  private async cargarTop5() {
+    this.cargando = true;
     this.infoMessage = '';
-    this.topProducts = [];
-
-    if (!this.jornadasFiltradas.length) {
-      this.infoMessage = 'No hay jornadas en el rango seleccionado.';
-      return;
-    }
-
     try {
-      const ventasAgrupadas = await Promise.all(
-        this.jornadasFiltradas.map((jornada) =>
-          this.apiClient.get<VentaApi[]>(`/api/ventas/jornada/${jornada.id}`),
-        ),
-      );
-      const ventas = ventasAgrupadas.flat();
-
-      if (!ventas.length) {
-        this.infoMessage = 'No hay ventas registradas en el rango seleccionado.';
-        return;
-      }
-
-      const itemsAgrupados = await Promise.all(
-        ventas.map((venta) => this.apiClient.get<ItemVentaApi[]>(`/api/ventas/items/venta/${venta.id}`)),
-      );
-      const items = itemsAgrupados.flat();
-
-      const grouped = new Map<string, Omit<TopProduct, 'rank'>>();
-      for (const item of items) {
-        if (!item.producto) {
-          continue;
-        }
-
-        const key = `${item.producto.id}`;
-        const nombre = item.producto.nombre;
-        const categoria = item.producto.categoria?.nombre ?? 'Sin categoría';
-        const cantidad = Number(item.cantidad ?? 0);
-        const total = Number(item.precioUnitario ?? 0) * cantidad;
-
-        const current = grouped.get(key);
-        if (!current) {
-          grouped.set(key, {
-            nombre,
-            categoria,
-            cantidad,
-            total,
-          });
-          continue;
-        }
-
-        grouped.set(key, {
-          ...current,
-          cantidad: current.cantidad + cantidad,
-          total: current.total + total,
-        });
-      }
-
-      this.topProducts = Array.from(grouped.values())
-        .sort((a, b) => {
-          if (b.total === a.total) {
-            return b.cantidad - a.cantidad;
-          }
-          return b.total - a.total;
-        })
-        .slice(0, 5)
-        .map((product, index) => ({ ...product, rank: index + 1 }));
-
-      if (!this.topProducts.length) {
-        this.infoMessage = 'No hay datos de top platillos para el rango seleccionado.';
-      }
-    } catch (error) {
-      this.topProducts = [];
-      this.infoMessage =
-        error instanceof Error && error.message
-          ? error.message
-          : 'No se pudo cargar el reporte de top platillos.';
+      // Endpoint que acepte inicio y fin. Ajusta la URL según tu API real.
+      const url = `/api/reportes/platillos/top5?inicio=${this.startDate}&fin=${this.endDate}`;
+      this.top5 = await this.apiClient.get<PlatilloTop[]>(url);
+    } catch (err) {
+      this.infoMessage = 'Error al cargar el top 5.';
+      console.error(err);
+      this.top5 = [];
+    } finally {
+      this.cargando = false;
     }
   }
 
-  private applyPresetDates(preset: RangePreset): void {
-    const today = new Date();
-    const end = this.toIsoDate(today);
-    const startDate = new Date(today);
+  // ------------------------------------------------------------
+  // WebSocket (solo actualiza si el rango es un único día)
+  // ------------------------------------------------------------
+  private suscribirActualizaciones() {
+    this.wsService.subscribe('/topic/top5', (event: any) => {
+      // event: { fecha: '2026-05-01', top5: [...] }
+      if (!event || !event.fecha) return;
 
-    if (preset === 'weekly') {
-      startDate.setDate(today.getDate() - 6);
-    } else if (preset === 'monthly') {
-      startDate.setDate(today.getDate() - 29);
-    }
-
-    this.endDate = end;
-    this.startDate = this.toIsoDate(startDate);
-  }
-
-  private applyJornadaFilter(): void {
-    const { start, end } = this.normalizedRange();
-    this.jornadasFiltradas = this.jornadas.filter((jornada) => {
-      if (!start || !end) {
-        return true;
+      // Solo aplicar si el rango actual es EXACTAMENTE ese día
+      if (this.startDate === event.fecha && this.endDate === event.fecha) {
+        this.top5 = event.top5;
+        console.log('📊 Top 5 actualizado en tiempo real');
       }
-      return jornada.fecha >= start && jornada.fecha <= end;
     });
   }
 
-  private normalizedRange(): { start: string; end: string } {
-    let start = this.startDate;
-    let end = this.endDate;
-    if (start && end && start > end) {
-      [start, end] = [end, start];
-    }
-    return { start, end };
+  // ------------------------------------------------------------
+  // Formateo de fechas (día/mes/año)
+  // ------------------------------------------------------------
+  formatFecha(iso: string): string {
+    if (!iso || iso.length < 10) return iso;
+    const [y, m, d] = iso.split('-');
+    return `${d}/${m}/${y}`;
   }
 
-  private toIsoDate(date: Date): string {
-    const year = date.getFullYear();
-    const month = `${date.getMonth() + 1}`.padStart(2, '0');
-    const day = `${date.getDate()}`.padStart(2, '0');
-    return `${year}-${month}-${day}`;
+  rangeLabel(): string {
+    if (!this.startDate || !this.endDate) return 'Sin rango definido';
+    if (this.startDate === this.endDate) {
+      return this.formatFecha(this.startDate);
+    }
+    return `${this.formatFecha(this.startDate)} a ${this.formatFecha(this.endDate)}`;
+  }
+
+  // ------------------------------------------------------------
+  // Utilidades
+  // ------------------------------------------------------------
+  private hoyISO(): string {
+    return new Date().toISOString().slice(0, 10);
+  }
+
+  private toISO(date: Date): string {
+    const y = date.getFullYear();
+    const m = (date.getMonth() + 1).toString().padStart(2, '0');
+    const d = date.getDate().toString().padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+
+  fmt(n: number): string {
+    return `$${n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
   }
 }

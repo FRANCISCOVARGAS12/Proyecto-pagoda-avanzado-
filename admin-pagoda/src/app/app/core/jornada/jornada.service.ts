@@ -73,6 +73,18 @@ export class JornadaService {
     }
   }
 
+  /**
+   * Aplica un evento de WebSocket que informa sobre la apertura o cierre de una jornada.
+   */
+  applyJornadaEvent(event: { accion: string; jornada?: any }) {
+    if (event.accion === 'ABIERTA' && event.jornada) {
+      const jornadaMapeada = this.mapJornada(event.jornada as JornadaApi);
+      this.jornadaAbiertaSignal.set(jornadaMapeada);
+    } else if (event.accion === 'CERRADA') {
+      this.jornadaAbiertaSignal.set(null);
+    }
+  }
+
   private mapJornada(jornada: JornadaApi): Jornada {
     return {
       id: jornada.id,

@@ -8,6 +8,8 @@ import SockJS from 'sockjs-client';
 export class WebSocketService {
   private client: Client | null = null;
   private connected = false;
+  // Cola de suscripciones pendientes hasta que la conexión esté lista
+  private pendingSubscriptions: Array<{ destination: string; callback: (message: any) => void }> = [];
 
   constructor() {
     console.log('🚀 WebSocketService inicializado');
@@ -20,65 +22,71 @@ export class WebSocketService {
         return;
       }
 
-      try {
-        const serverUrl = 'https://pagoda-api-v1-1.onrender.com/ws-pagoda';
-        console.log('Wait... Intentando conectar a:', serverUrl);
+      const serverUrl = 'https://pagoda-api-v1-1.onrender.com/ws-pagoda';
+      console.log('Conectando a:', serverUrl);
 
-        this.client = new Client({
-          webSocketFactory: () => new SockJS(serverUrl),
-          reconnectDelay: 5000,
-          heartbeatIncoming: 4000,
-          heartbeatOutgoing: 4000,
-          debug: (str) => {
-            console.log('STOMP Debug: ' + str);
-          }
+      this.client = new Client({
+        webSocketFactory: () => new SockJS(serverUrl),
+        reconnectDelay: 5000,
+        heartbeatIncoming: 4000,
+        heartbeatOutgoing: 4000,
+        debug: (str) => console.log('STOMP:', str)
+      });
+
+      this.client.onConnect = () => {
+        this.connected = true;
+        console.log('✅ WebSocket conectado');
+
+        // Volcar todas las suscripciones que llegaron mientras tanto
+        this.pendingSubscriptions.forEach(sub => {
+          this.client?.subscribe(sub.destination, (msg: any) => {
+            sub.callback(JSON.parse(msg.body));
+          });
         });
-
-        this.client.onConnect = () => {
-          this.connected = true;
-          console.log('✅ WebSocket conectado exitosamente');
-          resolve();
-        };
-
-        this.client.onDisconnect = () => {
-          this.connected = false;
-          console.log('❌ WebSocket desconectado');
-        };
-
-        this.client.onStompError = (frame: any) => {
-          console.error('❌ Error STOMP:', frame.body);
-          resolve();
-        };
-
-        this.client.activate();
-
-        // Timeout de seguridad (6 segundos) por si la conexión tarda demasiado
-        setTimeout(() => {
-          if (!this.connected) {
-            console.warn('WebSocket tardando más de lo esperado...');
-            resolve();
-          }
-        }, 6000);
-      } catch (error) {
-        console.warn('Error al inicializar cliente WebSocket:', error);
+        this.pendingSubscriptions = []; // limpiar cola
         resolve();
-      }
+      };
+
+      this.client.onDisconnect = () => {
+        this.connected = false;
+        console.log('❌ WebSocket desconectado');
+      };
+
+      this.client.onStompError = (frame: any) => {
+        console.error('Error STOMP:', frame.body);
+        resolve();
+      };
+
+      this.client.activate();
+
+      setTimeout(() => {
+        if (!this.connected) {
+          console.warn('WebSocket tardando más de lo esperado...');
+          resolve();
+        }
+      }, 6000);
     });
   }
 
+  /**
+   * Suscribirse a un destino. Si la conexión no está lista, la encola.
+   */
   subscribe(destination: string, callback: (message: any) => void): void {
     if (!this.client || !this.connected) {
-      console.warn('No se puede subscribir, socket no listo');
+      // Todavía no conectados; guardar para más tarde
+      console.log(`⏳ Encolando suscripción a ${destination}`);
+      this.pendingSubscriptions.push({ destination, callback });
       return;
     }
-    this.client.subscribe(destination, (message: any) => {
-      callback(JSON.parse(message.body));
+    this.client.subscribe(destination, (msg: any) => {
+      callback(JSON.parse(msg.body));
     });
   }
 
   disconnect(): void {
     if (this.client && this.connected) {
       this.client.deactivate();
+      this.connected = false;
     }
   }
 

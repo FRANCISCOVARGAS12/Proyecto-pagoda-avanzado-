@@ -44,11 +44,9 @@ export class App implements OnInit, OnDestroy {
   private async initializeWebSocket(): Promise<void> {
     try {
       await this.webSocketService.connect();
-      this.webSocketService.subscribe('/topic/jornadas', (event: any) => {
-        if (event.event === 'JORNADA_ABIERTA') {
-          console.log('📢 Nueva jornada abierta:', event);
-          this.jornadaService.refreshCurrentJornada();
-        }
+
+      this.webSocketService.subscribe('/topic/jornada', (event: any) => {
+        this.jornadaService.applyJornadaEvent(event);
       });
     } catch (error) {
       console.error('Error conectando a WebSocket:', error);

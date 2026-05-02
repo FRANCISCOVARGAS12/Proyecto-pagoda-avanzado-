@@ -2,11 +2,7 @@
   <h1 class="page-title">Top 5 Platillos Más Vendidos</h1>
 
   <div class="date-filters">
-    <select
-      [(ngModel)]="rangePreset"
-      (ngModelChange)="onPresetChange()"
-      class="control-input"
-    >
+    <select [(ngModel)]="rangePreset" (ngModelChange)="onPresetChange()" class="control-input">
       <option value="weekly">Semanal</option>
       <option value="monthly">Mensual</option>
       <option value="custom">Personalizado</option>
@@ -24,9 +20,14 @@
 
   <p class="range-caption">Rango seleccionado: {{ rangeLabel() }}</p>
 
-  <div class="table-shell">
-    <table>
-      <thead>
+  @if (cargando) {
+    <p class="table-footnote">Cargando…</p>
+  } @else if (!top5.length) {
+    <p class="table-footnote">No hay datos para el rango seleccionado.</p>
+  } @else {
+    <div class="table-shell">
+      <table>
+        <thead>
         <tr>
           <th class="w-24">Posición</th>
           <th>Nombre del Platillo</th>
@@ -34,23 +35,20 @@
           <th class="right w-36">Cantidad Vendida</th>
           <th class="right w-36">Total Generado</th>
         </tr>
-      </thead>
-      <tbody>
-        @for (product of topProducts; track product.rank) {
-          <tr>
-            <td class="muted">#{{ product.rank }}</td>
-            <td>{{ product.nombre }}</td>
-            <td>{{ product.categoria }}</td>
-            <td class="right">{{ product.cantidad }}</td>
-            <td class="right strong">{{ fmt(product.total) }}</td>
-          </tr>
-        }
-      </tbody>
-    </table>
-  </div>
-
-  @if (infoMessage) {
-    <p class="table-footnote">{{ infoMessage }}</p>
+        </thead>
+        <tbody>
+          @for (product of top5; track product.nombre; let i = $index) {
+            <tr>
+              <td class="muted">#{{ i + 1 }}</td>
+              <td>{{ product.nombre }}</td>
+              <td>{{ product.categoria || '—' }}</td>
+              <td class="right">{{ product.cantidadVendida }}</td>
+              <td class="right strong">{{ fmt(product.totalGenerado) }}</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
   }
 
   <p class="table-footnote">Ordenado por total generado · de mayor a menor</p>

@@ -4,16 +4,19 @@ import com.pagoda.pagoda_api.dto.response.ApiResponse;
 import com.pagoda.pagoda_api.entity.reportes.ResumenPropinaDiario;
 import com.pagoda.pagoda_api.service.ResumenPropinaDiarioService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/api/reportes/propinas-diarias")
+@RequestMapping("/api/reportes/propinas")
 @RequiredArgsConstructor
 public class ResumenPropinaDiarioController {
 
@@ -30,14 +33,33 @@ public class ResumenPropinaDiarioController {
                 .body(ApiResponse.ok("Resumen de propinas generado", service.guardar(payload)));
     }
 
-    @GetMapping("/quincena")
-    public ResponseEntity<ApiResponse<Map<String, Object>>> obtenerQuincena() {
-        BigDecimal propinasQuincena = service.obtenerPropinasPorQuincena();
-        Map<String, Object> response = Map.of(
-                "propinasQuincena", propinasQuincena,
-                "moneda", "MXN"
-        );
-        return ResponseEntity.ok(ApiResponse.ok("Propinas de la quincena obtenidas", response));
+    // ✅ Periodo actual de 15 días (móvil)
+    @GetMapping("/actual")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> obtenerPeriodoActual() {
+        LocalDate hoy = LocalDate.now();
+        int offset = (hoy.getDayOfMonth() - 1) % 15;
+        LocalDate inicio = hoy.minusDays(offset);
+        LocalDate fin = inicio.plusDays(14);
+        BigDecimal acumulado = service.getTotalPropinaEntreFechas(inicio, fin);
+
+        Map<String, Object> data = new HashMap<>();
+        data.put("inicio", inicio.toString());
+        data.put("fin", fin.toString());
+        data.put("acumulado", acumulado);
+        return ResponseEntity.ok(ApiResponse.ok("Propinas del periodo actual", data));
+    }
+
+    // ✅ Rango personalizado (llamado por el frontend al cambiar fechas)
+    @GetMapping
+    public ResponseEntity<ApiResponse<Map<String, Object>>> obtenerRango(
+            @RequestParam("inicio") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate inicio,
+            @RequestParam("fin") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fin) {
+
+        BigDecimal acumulado = service.getTotalPropinaEntreFechas(inicio, fin);
+        Map<String, Object> data = new HashMap<>();
+        data.put("inicio", inicio.toString());
+        data.put("fin", fin.toString());
+        data.put("acumulado", acumulado);
+        return ResponseEntity.ok(ApiResponse.ok("Propinas en el rango seleccionado", data));
     }
 }
-

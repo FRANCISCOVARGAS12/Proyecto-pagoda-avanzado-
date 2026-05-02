@@ -1,63 +1,33 @@
 <section class="page">
-  <h1 class="page-title large">Reporte de Propinas</h1>
+  <h1 class="page-title">Propinas</h1>
 
   <div class="date-filters">
-    <select
-      [(ngModel)]="rangePreset"
-      (ngModelChange)="onPresetChange()"
-      class="control-input"
-    >
-      <option value="biweekly">Quincenal (15 días)</option>
-    </select>
+    <button type="button" (click)="irPeriodoActual()" class="control-btn">Periodo actual</button>
+    <button type="button" (click)="periodoAnterior()" class="control-btn">← Anterior</button>
+    <button type="button" (click)="periodoSiguiente()" class="control-btn">Siguiente →</button>
 
     <div class="date-field">
-      <label for="startDate">Fecha de Inicio</label>
-      <input
-        id="startDate"
-        type="date"
-        [(ngModel)]="startDate"
-        (change)="onDateRangeChange('start')"
-      />
+      <label for="startDate">Inicio</label>
+      <input id="startDate" type="date" [(ngModel)]="startDate" (change)="onDateRangeChange()" />
     </div>
     <div class="date-field">
-      <label for="endDate">Fecha de Fin</label>
-      <input
-        id="endDate"
-        type="date"
-        [(ngModel)]="endDate"
-        (change)="onDateRangeChange('end')"
-      />
+      <label for="endDate">Fin</label>
+      <input id="endDate" type="date" [(ngModel)]="endDate" (change)="onDateRangeChange()" />
     </div>
   </div>
 
-  <div class="period-nav">
-    <button
-      type="button"
-      class="secondary-btn"
-      [disabled]="!canGoToPreviousPeriod()"
-      (click)="goToPreviousPeriod()"
-    >
-      ← 15 días
-    </button>
-    <button
-      type="button"
-      class="secondary-btn"
-      [disabled]="!canGoToNextPeriod()"
-      (click)="goToNextPeriod()"
-    >
-      15 días →
-    </button>
-  </div>
+  <p class="range-caption">{{ rangeLabel() }}</p>
 
-  <p class="range-caption">Periodo quincenal: {{ rangeLabel() }}</p>
-
-  <div class="tip-wrapper">
-    <div class="tip-card">
-      <p>Total Propinas Generadas</p>
-      <strong>{{ fmt(totalPropinas) }}</strong>
-      @if (infoMessage) {
-        <small>{{ infoMessage }}</small>
-      }
+  @if (cargando) {
+    <p class="info-message">Cargando…</p>
+  } @else {
+    <div class="total-card">
+      <h2>Total acumulado de propinas</h2>
+      <p class="monto">{{ fmt(acumulado) }}</p>
     </div>
-  </div>
+  }
+
+  @if (infoMessage) {
+    <p class="info-message">{{ infoMessage }}</p>
+  }
 </section>

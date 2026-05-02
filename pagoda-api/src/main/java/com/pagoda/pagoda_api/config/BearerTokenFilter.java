@@ -36,11 +36,19 @@ public class BearerTokenFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
+        // Ignorar siempre las peticiones OPTIONS (pre-flight CORS)
         if ("OPTIONS".equalsIgnoreCase(request.getMethod())) {
             return true;
         }
 
         String path = request.getRequestURI();
+
+        // Exclusión explícita para WebSocket (SockJS)
+        if (path.startsWith("/ws-pagoda")) {
+            return true;
+        }
+
+        // El resto de rutas públicas
         return PUBLIC_PATHS.stream().anyMatch(path::startsWith);
     }
 
@@ -50,6 +58,13 @@ public class BearerTokenFilter extends OncePerRequestFilter {
             HttpServletResponse response,
             FilterChain filterChain
     ) throws ServletException, IOException {
+        // ❗ Bypass total para WebSocket (SockJS) – no tocar estas peticiones
+        if (request.getRequestURI().startsWith("/ws-pagoda")) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
+        // --- Lógica normal a partir de aquí ---
         String authHeader = request.getHeader("Authorization");
 
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
@@ -75,7 +90,6 @@ public class BearerTokenFilter extends OncePerRequestFilter {
 
         filterChain.doFilter(request, response);
     }
-
     private void writeUnauthorized(HttpServletResponse response) throws IOException {
         ApiResponse<Void> payload = ApiResponse.error(
                 ErrorCode.TOKEN_INVALIDO.getMsj(),
