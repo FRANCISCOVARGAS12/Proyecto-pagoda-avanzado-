@@ -2,9 +2,9 @@
   <h1 class="page-title">Propinas</h1>
 
   <div class="date-filters">
-    <button type="button" (click)="irPeriodoActual()" class="control-btn">Periodo actual</button>
-    <button type="button" (click)="periodoAnterior()" class="control-btn">← Anterior</button>
-    <button type="button" (click)="periodoSiguiente()" class="control-btn">Siguiente →</button>
+    <button type="button" (click)="irPeriodoActual()" class="secondary-btn">Periodo actual</button>
+    <button type="button" (click)="periodoAnterior()" class="secondary-btn">← Anterior</button>
+    <button type="button" (click)="periodoSiguiente()" class="secondary-btn">Siguiente →</button>
 
     <div class="date-field">
       <label for="startDate">Inicio</label>
@@ -19,15 +19,17 @@
   <p class="range-caption">{{ rangeLabel() }}</p>
 
   @if (cargando) {
-    <p class="info-message">Cargando…</p>
+    <p class="range-caption">Cargando…</p>
   } @else {
-    <div class="total-card">
-      <h2>Total acumulado de propinas</h2>
-      <p class="monto">{{ fmt(acumulado) }}</p>
+    <div class="tip-wrapper">
+      <div class="tip-card">
+        <p>Total acumulado de propinas</p>
+        <strong>{{ fmt(acumulado) }}</strong>
+      </div>
     </div>
   }
 
   @if (infoMessage) {
-    <p class="info-message">{{ infoMessage }}</p>
+    <p class="range-caption">{{ infoMessage }}</p>
   }
 </section>

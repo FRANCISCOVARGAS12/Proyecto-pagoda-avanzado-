@@ -101,8 +101,9 @@ export class Top5Component implements OnInit {
     this.cargando = true;
     this.infoMessage = '';
     try {
+      const { inicio, fin } = this.normalizarRango();
       // Endpoint que acepte inicio y fin. Ajusta la URL según tu API real.
-      const url = `/api/reportes/platillos/top5?inicio=${this.startDate}&fin=${this.endDate}`;
+      const url = `/api/reportes/platillos/top5?inicio=${inicio}&fin=${fin}`;
       this.top5 = await this.apiClient.get<PlatilloTop[]>(url);
       this.saveState();
     } catch (err) {
@@ -165,6 +166,22 @@ export class Top5Component implements OnInit {
     const m = (date.getMonth() + 1).toString().padStart(2, '0');
     const d = date.getDate().toString().padStart(2, '0');
     return `${y}-${m}-${d}`;
+  }
+
+  private normalizarRango(): { inicio: string; fin: string } {
+    if (!this.startDate || !this.endDate) {
+      return { inicio: this.startDate, fin: this.endDate };
+    }
+
+    if (this.startDate <= this.endDate) {
+      return { inicio: this.startDate, fin: this.endDate };
+    }
+
+    const inicio = this.endDate;
+    const fin = this.startDate;
+    this.startDate = inicio;
+    this.endDate = fin;
+    return { inicio, fin };
   }
 
   private isDateInRange(isoDate: string): boolean {
