@@ -4,12 +4,19 @@ import { ApiClientService } from '../../core/api/api-client.service';
 import { WebSocketService } from '../../core/websocket/websocket.service';
 
 type RangePreset = 'weekly' | 'monthly' | 'custom';
+const TOP5_STATE_KEY = 'pagoda-top5-state';
 
 interface PlatilloTop {
   nombre: string;
   categoria?: string;
   cantidadVendida: number;
   totalGenerado: number;
+}
+
+interface Top5State {
+  rangePreset: RangePreset;
+  startDate: string;
+  endDate: string;
 }
 
 @Component({
@@ -35,8 +42,10 @@ export class Top5Component implements OnInit {
   ) {}
 
   async ngOnInit() {
-    // Inicializar rango: por defecto, el día de la jornada activa o hoy
-    await this.inicializarRango();
+    if (!this.restoreState()) {
+      // Inicializar rango: por defecto, el día de la jornada activa o hoy
+      await this.inicializarRango();
+    }
     await this.cargarTop5();
     this.suscribirActualizaciones();
   }
@@ -56,6 +65,7 @@ export class Top5Component implements OnInit {
       this.startDate = hoy;
       this.endDate = hoy;
     }
+    this.saveState();
   }
 
   onPresetChange() {
@@ -65,12 +75,14 @@ export class Top5Component implements OnInit {
       this.aplicarDias(-29);
     }
     // si es 'custom', no tocamos las fechas
-    this.cargarTop5();
+    this.saveState();
+    void this.cargarTop5();
   }
 
   onDateRangeChange() {
     this.rangePreset = 'custom';
-    this.cargarTop5();
+    this.saveState();
+    void this.cargarTop5();
   }
 
   private aplicarDias(dias: number) {
@@ -79,6 +91,7 @@ export class Top5Component implements OnInit {
     inicio.setDate(fin.getDate() + dias);
     this.endDate = this.toISO(fin);
     this.startDate = this.toISO(inicio);
+    this.saveState();
   }
 
   // ------------------------------------------------------------
@@ -91,6 +104,7 @@ export class Top5Component implements OnInit {
       // Endpoint que acepte inicio y fin. Ajusta la URL según tu API real.
       const url = `/api/reportes/platillos/top5?inicio=${this.startDate}&fin=${this.endDate}`;
       this.top5 = await this.apiClient.get<PlatilloTop[]>(url);
+      this.saveState();
     } catch (err) {
       this.infoMessage = 'Error al cargar el top 5.';
       console.error(err);
@@ -108,11 +122,17 @@ export class Top5Component implements OnInit {
       // event: { fecha: '2026-05-01', top5: [...] }
       if (!event || !event.fecha) return;
 
-      // Solo aplicar si el rango actual es EXACTAMENTE ese día
-      if (this.startDate === event.fecha && this.endDate === event.fecha) {
+      const fechaEvento = String(event.fecha).slice(0, 10);
+      if (!this.isDateInRange(fechaEvento)) return;
+
+      // Si el rango mostrado es un único día, podemos usar el payload directamente.
+      if (this.startDate === this.endDate && this.startDate === fechaEvento && Array.isArray(event.top5)) {
         this.top5 = event.top5;
-        console.log('📊 Top 5 actualizado en tiempo real');
+        return;
       }
+
+      // Para rangos de varios días, recargar asegura agregados correctos.
+      void this.cargarTop5();
     });
   }
 
@@ -145,6 +165,51 @@ export class Top5Component implements OnInit {
     const m = (date.getMonth() + 1).toString().padStart(2, '0');
     const d = date.getDate().toString().padStart(2, '0');
     return `${y}-${m}-${d}`;
+  }
+
+  private isDateInRange(isoDate: string): boolean {
+    const start = this.startDate <= this.endDate ? this.startDate : this.endDate;
+    const end = this.endDate >= this.startDate ? this.endDate : this.startDate;
+    return Boolean(isoDate && start && end && isoDate >= start && isoDate <= end);
+  }
+
+  private restoreState(): boolean {
+    try {
+      const raw = localStorage.getItem(TOP5_STATE_KEY);
+      if (!raw) return false;
+
+      const state = JSON.parse(raw) as Partial<Top5State>;
+      if (!state.startDate || !state.endDate || !this.isIsoDate(state.startDate) || !this.isIsoDate(state.endDate)) {
+        return false;
+      }
+
+      this.startDate = state.startDate;
+      this.endDate = state.endDate;
+      this.rangePreset =
+        state.rangePreset === 'weekly' || state.rangePreset === 'monthly' || state.rangePreset === 'custom'
+          ? state.rangePreset
+          : 'custom';
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private saveState(): void {
+    try {
+      const state: Top5State = {
+        rangePreset: this.rangePreset,
+        startDate: this.startDate,
+        endDate: this.endDate,
+      };
+      localStorage.setItem(TOP5_STATE_KEY, JSON.stringify(state));
+    } catch {
+      // Ignora errores de storage para no bloquear la vista.
+    }
+  }
+
+  private isIsoDate(value: string): boolean {
+    return /^\d{4}-\d{2}-\d{2}$/.test(value);
   }
 
   fmt(n: number): string {

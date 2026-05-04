@@ -1,4 +1,4 @@
-import { Component, inject, OnInit, OnDestroy } from '@angular/core';
+import { Component, effect, inject, OnDestroy } from '@angular/core';
 import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { AuthService } from './app/core/auth/auth.service';
 import { JornadaService } from './app/core/jornada/jornada.service';
@@ -14,12 +14,13 @@ const THEME_KEY = 'pagoda-theme';
   templateUrl: './app.html',
   styleUrl: './app.css'
 })
-export class App implements OnInit, OnDestroy {
+export class App implements OnDestroy {
   private readonly authService = inject(AuthService);
   private readonly jornadaService = inject(JornadaService);
   private readonly router = inject(Router);
   private readonly toastService = inject(ToastService);
   private readonly webSocketService = inject(WebSocketService);
+  private jornadaTopicSubscribed = false;
 
   protected isDarkMode = false;
   protected readonly isAuthenticated = this.authService.isAuthenticated;
@@ -29,12 +30,16 @@ export class App implements OnInit, OnDestroy {
   constructor() {
     this.isDarkMode = this.getInitialTheme();
     this.applyTheme(this.isDarkMode);
-  }
+    effect(() => {
+      const authenticated = this.isAuthenticated();
+      if (authenticated) {
+        void this.initializeWebSocket();
+        return;
+      }
 
-  ngOnInit(): void {
-    if (this.authService.isAuthenticated()) {
-      this.initializeWebSocket();
-    }
+      this.jornadaTopicSubscribed = false;
+      this.webSocketService.disconnect();
+    });
   }
 
   ngOnDestroy(): void {
@@ -43,11 +48,18 @@ export class App implements OnInit, OnDestroy {
 
   private async initializeWebSocket(): Promise<void> {
     try {
-      await this.webSocketService.connect();
+      if (!this.webSocketService.isConnected()) {
+        await this.webSocketService.connect();
+      }
 
-      this.webSocketService.subscribe('/topic/jornada', (event: any) => {
-        this.jornadaService.applyJornadaEvent(event);
-      });
+      if (!this.jornadaTopicSubscribed) {
+        this.webSocketService.subscribe('/topic/jornada', (event: any) => {
+          this.jornadaService.applyJornadaEvent(event);
+        });
+        this.jornadaTopicSubscribed = true;
+      }
+
+      await this.jornadaService.refreshCurrentJornada();
     } catch (error) {
       console.error('Error conectando a WebSocket:', error);
     }
@@ -113,4 +125,3 @@ export class App implements OnInit, OnDestroy {
     }
   }
 }
-

@@ -35,14 +35,17 @@ export class JornadaService {
   }
 
   async refreshJornada(): Promise<void> {
-    const jornadaApi = await this.apiClient.getOrNull<JornadaApi>('/api/operacion/jornadas/estado');
+    try {
+      const jornadaApi = await this.apiClient.getOrNull<JornadaApi>('/api/operacion/jornadas/estado');
+      if (!jornadaApi || jornadaApi.estado !== 'ABIERTA') {
+        this.jornadaAbiertaSignal.set(null);
+        return;
+      }
 
-    if (!jornadaApi || jornadaApi.estado !== 'ABIERTA') {
+      this.jornadaAbiertaSignal.set(this.mapJornada(jornadaApi));
+    } catch {
       this.jornadaAbiertaSignal.set(null);
-      return;
     }
-
-    this.jornadaAbiertaSignal.set(this.mapJornada(jornadaApi));
   }
 
   // Alias para WebSocket
@@ -76,11 +79,17 @@ export class JornadaService {
   /**
    * Aplica un evento de WebSocket que informa sobre la apertura o cierre de una jornada.
    */
-  applyJornadaEvent(event: { accion: string; jornada?: any }) {
+  applyJornadaEvent(event: { accion?: string; jornada?: JornadaApi | null } | null | undefined): void {
+    if (!event) {
+      return;
+    }
+
     if (event.accion === 'ABIERTA' && event.jornada) {
-      const jornadaMapeada = this.mapJornada(event.jornada as JornadaApi);
-      this.jornadaAbiertaSignal.set(jornadaMapeada);
-    } else if (event.accion === 'CERRADA') {
+      this.jornadaAbiertaSignal.set(this.mapJornada(event.jornada));
+      return;
+    }
+
+    if (event.accion === 'CERRADA') {
       this.jornadaAbiertaSignal.set(null);
     }
   }

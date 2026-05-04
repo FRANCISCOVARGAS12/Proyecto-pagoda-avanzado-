@@ -56,7 +56,8 @@ public class SecurityConfig {
                         "/api/mesero/login",
                         "/api/auth/check-setup",
                         "/api/auth/register-first-admin",
-                        "/api/health"
+                        "/api/health",
+                        "/api/reportes/**"
                 )
                 .cors(Customizer.withDefaults())
                 .csrf(AbstractHttpConfigurer::disable)

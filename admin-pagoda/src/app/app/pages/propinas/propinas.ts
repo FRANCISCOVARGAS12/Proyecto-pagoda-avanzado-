@@ -3,6 +3,19 @@ import { FormsModule } from '@angular/forms';
 import { ApiClientService } from '../../core/api/api-client.service';
 import { WebSocketService } from '../../core/websocket/websocket.service';
 
+const PROPINAS_STATE_KEY = 'pagoda-propinas-state';
+
+interface PropinasResponse {
+  inicio: string;
+  fin: string;
+  acumulado: number;
+}
+
+interface PropinasState {
+  startDate: string;
+  endDate: string;
+}
+
 @Component({
   selector: 'app-propinas',
   imports: [FormsModule],
@@ -16,35 +29,39 @@ export class PropinasComponent implements OnInit {
   cargando = false;
   infoMessage = '';
 
-  // Periodo actual automático
-  private periodoActualInicio = '';
-
   constructor(
     private apiClient: ApiClientService,
     private wsService: WebSocketService
   ) {}
 
   async ngOnInit() {
-    this.setPeriodoActual();
-    await this.cargarPropinas();
+    if (!this.restoreState()) {
+      await this.cargarPeriodoActual();
+    } else {
+      await this.cargarPropinas();
+    }
     this.suscribirActualizaciones();
   }
 
   // ----------------------------------------------------------
   // Cálculo del periodo actual de 15 días
   // ----------------------------------------------------------
-  private setPeriodoActual() {
-    const hoy = new Date();
-    const dia = hoy.getDate();
-    const offset = (dia - 1) % 15;
-    const inicio = new Date(hoy);
-    inicio.setDate(dia - offset);
-    const fin = new Date(inicio);
-    fin.setDate(inicio.getDate() + 14);
-
-    this.startDate = this.toISO(inicio);
-    this.endDate = this.toISO(fin);
-    this.periodoActualInicio = this.startDate;
+  private async cargarPeriodoActual() {
+    this.cargando = true;
+    this.infoMessage = '';
+    try {
+      const data = await this.apiClient.get<PropinasResponse>('/api/reportes/propinas/actual');
+      this.startDate = String(data.inicio).slice(0, 10);
+      this.endDate = String(data.fin).slice(0, 10);
+      this.acumulado = Number(data.acumulado ?? 0);
+      this.saveState();
+    } catch (err) {
+      this.infoMessage = 'Error al cargar propinas.';
+      console.error(err);
+      this.acumulado = 0;
+    } finally {
+      this.cargando = false;
+    }
   }
 
   // ----------------------------------------------------------
@@ -54,10 +71,13 @@ export class PropinasComponent implements OnInit {
     this.cargando = true;
     this.infoMessage = '';
     try {
-      const data = await this.apiClient.get<{ acumulado: number }>(
+      const data = await this.apiClient.get<PropinasResponse>(
         `/api/reportes/propinas?inicio=${this.startDate}&fin=${this.endDate}`
       );
-      this.acumulado = data.acumulado ?? 0;
+      this.startDate = String(data.inicio).slice(0, 10);
+      this.endDate = String(data.fin).slice(0, 10);
+      this.acumulado = Number(data.acumulado ?? 0);
+      this.saveState();
     } catch (err) {
       this.infoMessage = 'Error al cargar propinas.';
       console.error(err);
@@ -74,8 +94,9 @@ export class PropinasComponent implements OnInit {
     this.wsService.subscribe('/topic/propinas', (event: any) => {
       // event: { acumulado, periodoInicio }
       if (!event || !event.periodoInicio) return;
-      if (this.startDate === event.periodoInicio) {
-        this.acumulado = event.acumulado;
+      const periodoInicio = String(event.periodoInicio).slice(0, 10);
+      if (this.startDate === periodoInicio) {
+        this.acumulado = Number(event.acumulado ?? 0);
       }
     });
   }
@@ -84,8 +105,7 @@ export class PropinasComponent implements OnInit {
   // Botones rápido: periodo actual, anterior, siguiente
   // ----------------------------------------------------------
   irPeriodoActual() {
-    this.setPeriodoActual();
-    this.cargarPropinas();
+    void this.cargarPeriodoActual();
   }
 
   periodoAnterior() {
@@ -103,14 +123,16 @@ export class PropinasComponent implements OnInit {
     fin.setDate(inicio.getDate() + 14);
     this.startDate = this.toISO(inicio);
     this.endDate = this.toISO(fin);
-    this.cargarPropinas();
+    this.saveState();
+    void this.cargarPropinas();
   }
 
   // ----------------------------------------------------------
   // Al cambiar fechas manualmente
   // ----------------------------------------------------------
   onDateRangeChange() {
-    this.cargarPropinas();
+    this.saveState();
+    void this.cargarPropinas();
   }
 
   // ----------------------------------------------------------
@@ -135,6 +157,40 @@ export class PropinasComponent implements OnInit {
     const m = (date.getMonth() + 1).toString().padStart(2, '0');
     const d = date.getDate().toString().padStart(2, '0');
     return `${y}-${m}-${d}`;
+  }
+
+  private restoreState(): boolean {
+    try {
+      const raw = localStorage.getItem(PROPINAS_STATE_KEY);
+      if (!raw) return false;
+
+      const state = JSON.parse(raw) as Partial<PropinasState>;
+      if (!state.startDate || !state.endDate || !this.isIsoDate(state.startDate) || !this.isIsoDate(state.endDate)) {
+        return false;
+      }
+
+      this.startDate = state.startDate;
+      this.endDate = state.endDate;
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private saveState(): void {
+    try {
+      const state: PropinasState = {
+        startDate: this.startDate,
+        endDate: this.endDate,
+      };
+      localStorage.setItem(PROPINAS_STATE_KEY, JSON.stringify(state));
+    } catch {
+      // Ignora errores de storage para no bloquear la vista.
+    }
+  }
+
+  private isIsoDate(value: string): boolean {
+    return /^\d{4}-\d{2}-\d{2}$/.test(value);
   }
 
   fmt(n: number): string {

@@ -30,7 +30,7 @@
       [(ngModel)]="selectedJornadaId"
       (ngModelChange)="onJornadaChange()"
       class="control-input"
-      [disabled]="!jornadasFiltradas.length"
+      [disabled]="!jornadas.length"
     >
       <option [ngValue]="'all'">Todas las jornadas del rango</option>
       @for (jornada of jornadas; track jornada.id) {

@@ -5,6 +5,7 @@ import { WebSocketService } from '../../core/websocket/websocket.service';
 
 type RangePreset = 'weekly' | 'monthly' | 'custom';
 type JornadaSelection = number | 'all';
+const LAST_JORNADA_STORAGE_KEY = 'pagoda-ventas-last-jornada';
 
 interface DishItem {
   nombre: string;
@@ -122,14 +123,23 @@ export class Ventas implements OnInit {
           // Actualizar estado a ABIERTA
           this.jornadas = this.jornadas.map(j => j.id === nueva.id ? nueva : j);
         }
+        this.applyJornadaFilter();
+        this.jornadaAbiertaId = nueva.id;
+        this.jornadaAbierta = true;
         // Seleccionar automáticamente la jornada recién abierta
         this.selectedJornadaId = nueva.id;
+        this.saveLastJornadaSelection(this.selectedJornadaId);
         this.loadResumenVentas();
       } else if (event.accion === 'CERRADA' && event.jornada) {
         const cerrada: JornadaApi = event.jornada;
         this.jornadas = this.jornadas.map(j =>
           j.id === cerrada.id ? { ...j, estado: 'CERRADA' } : j
         );
+        this.applyJornadaFilter();
+        if (this.jornadaAbiertaId === cerrada.id) {
+          this.jornadaAbiertaId = null;
+          this.jornadaAbierta = false;
+        }
         // Si era la seleccionada, recargar para reflejar el cambio
         if (this.selectedJornadaId === cerrada.id) {
           this.loadResumenVentas();
@@ -163,17 +173,20 @@ export class Ventas implements OnInit {
       this.applyPresetDates(this.rangePreset);
     }
     this.applyJornadaFilter();
+    this.saveLastJornadaSelection(this.selectedJornadaId);
     await this.loadResumenVentas();
   }
 
   protected async onDateRangeChange(): Promise<void> {
     this.rangePreset = 'custom';
     this.applyJornadaFilter();
+    this.saveLastJornadaSelection(this.selectedJornadaId);
     await this.loadResumenVentas();
   }
 
   protected async onJornadaChange(): Promise<void> {
     // Si es una jornada concreta, carga directa (getSelectedJornadas la encuentra)
+    this.saveLastJornadaSelection(this.selectedJornadaId);
     await this.loadResumenVentas();
   }
 
@@ -496,6 +509,7 @@ export class Ventas implements OnInit {
         this.apiClient.get<JornadaApi[]>('/api/operacion/jornadas'),
         this.apiClient.getOrNull<JornadaApi>('/api/operacion/jornadas/estado'),
       ]);
+      const ultimaSeleccion = this.readLastJornadaSelection();
       this.jornadaAbiertaId = jornadaAbierta?.id ?? null;
       this.jornadas = [...jornadas].sort((a, b) => {
         const fechaA = this.isoDateKey(a.fecha);
@@ -519,9 +533,17 @@ export class Ventas implements OnInit {
 
       if (this.jornadaAbiertaId) {
         this.selectedJornadaId = this.jornadaAbiertaId;
-      } else if (this.jornadasFiltradas.length > 0) {
-        this.selectedJornadaId = this.jornadasFiltradas[0].id;
+      } else if (
+        ultimaSeleccion === 'all' ||
+        (typeof ultimaSeleccion === 'number' && this.jornadas.some((jornada) => jornada.id === ultimaSeleccion))
+      ) {
+        this.selectedJornadaId = ultimaSeleccion;
+      } else if (this.jornadas.length > 0) {
+        this.selectedJornadaId = this.jornadas[0].id;
+      } else {
+        this.selectedJornadaId = null;
       }
+      this.saveLastJornadaSelection(this.selectedJornadaId);
     } catch (error) {
       this.jornadaAbiertaId = null;
       this.jornadas = [];
@@ -614,6 +636,13 @@ export class Ventas implements OnInit {
     });
 
     if (!this.jornadasFiltradas.length) {
+      if (
+        this.selectedJornadaId !== null &&
+        this.selectedJornadaId !== 'all' &&
+        this.jornadas.some((jornada) => jornada.id === this.selectedJornadaId)
+      ) {
+        return;
+      }
       this.selectedJornadaId = null;
       return;
     }
@@ -625,7 +654,7 @@ export class Ventas implements OnInit {
 
     if (
       this.selectedJornadaId !== 'all' &&
-      !this.jornadasFiltradas.some((jornada) => jornada.id === this.selectedJornadaId)
+      !this.jornadas.some((jornada) => jornada.id === this.selectedJornadaId)
     ) {
       this.selectedJornadaId = this.resolveDefaultJornadaSelection();
     }
@@ -686,6 +715,35 @@ export class Ventas implements OnInit {
       return new Date();
     }
     return parsed;
+  }
+
+  private readLastJornadaSelection(): JornadaSelection | null {
+    try {
+      const value = localStorage.getItem(LAST_JORNADA_STORAGE_KEY);
+      if (value === 'all') {
+        return 'all';
+      }
+
+      const parsed = Number(value);
+      if (Number.isInteger(parsed) && parsed > 0) {
+        return parsed;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  private saveLastJornadaSelection(selection: JornadaSelection | null): void {
+    try {
+      if (selection === null) {
+        localStorage.removeItem(LAST_JORNADA_STORAGE_KEY);
+        return;
+      }
+      localStorage.setItem(LAST_JORNADA_STORAGE_KEY, selection === 'all' ? 'all' : `${selection}`);
+    } catch {
+      // Ignora errores de storage para no bloquear la vista.
+    }
   }
 
 

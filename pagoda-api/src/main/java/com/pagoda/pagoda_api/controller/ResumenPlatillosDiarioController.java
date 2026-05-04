@@ -10,8 +10,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
-import java.util.*;
-import java.util.stream.Collectors;
+import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/reportes/platillos")    // ← cambiado de "platillos-diarios"
@@ -33,21 +33,11 @@ public class ResumenPlatillosDiarioController {
 
     // ✅ NUEVO ENDPOINT para Top 5
     @GetMapping("/top5")
-    public ResponseEntity<List<Map<String, Object>>> top5(
+    public ResponseEntity<ApiResponse<List<Map<String, Object>>>> top5(
             @RequestParam("inicio") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate inicio,
             @RequestParam("fin") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fin) {
 
-        List<Object[]> results = service.obtenerTop5(inicio, fin);
-
-        List<Map<String, Object>> response = results.stream().map(row -> {
-            Map<String, Object> map = new LinkedHashMap<>();
-            map.put("nombre", row[0]);
-            map.put("categoria", row[1] != null ? row[1] : "Sin categoría");
-            map.put("cantidadVendida", row[2]);
-            map.put("totalGenerado", row[3]);
-            return map;
-        }).collect(Collectors.toList());
-
-        return ResponseEntity.ok(response);
+        List<Map<String, Object>> response = service.obtenerTop5Resumen(inicio, fin);
+        return ResponseEntity.ok(ApiResponse.ok("Top 5 de platillos obtenido", response));
     }
 }
