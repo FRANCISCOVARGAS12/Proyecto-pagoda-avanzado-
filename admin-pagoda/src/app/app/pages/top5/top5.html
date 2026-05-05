@@ -19,6 +19,9 @@
   </div>
 
   <p class="range-caption">Rango seleccionado: {{ rangeLabel() }}</p>
+  <p class="range-caption">
+    Modo: {{ isRealtimeEnabled() ? 'Tiempo real activo' : 'Rango historico (sin tiempo real)' }}
+  </p>
 
   @if (cargando) {
     <p class="table-footnote">Cargando…</p>

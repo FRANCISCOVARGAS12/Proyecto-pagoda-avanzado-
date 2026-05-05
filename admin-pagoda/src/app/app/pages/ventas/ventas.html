@@ -38,13 +38,30 @@
       }
     </select>
 
-    <button type="button" class="primary-btn" (click)="exportPdf()">
+    <button type="button" class="primary-btn" (click)="applyFilters()" [disabled]="isApplyDisabled()">
+      Consultar
+    </button>
+
+    <button type="button" class="secondary-btn" (click)="clearFilters()" [disabled]="cargandoResumen">
+      Limpiar filtros
+    </button>
+
+    <button type="button" class="primary-btn" (click)="exportPdf()" [disabled]="!ordersData.length || cargandoResumen">
       <span aria-hidden="true">⤓</span>
       Exportar PDF
     </button>
   </div>
 
   <p class="ventas-scope">Rango: {{ rangeLabel() }} · {{ selectedScopeLabel() }}</p>
+  @if (filtrosPendientes && !isDateRangeInvalid()) {
+    <p class="ventas-info">Tienes cambios en filtros sin aplicar.</p>
+  }
+  @if (isDateRangeInvalid()) {
+    <p class="ventas-info error">La fecha fin no puede ser menor que la fecha inicio.</p>
+  }
+  @if (cargandoResumen) {
+    <p class="ventas-loading">Consultando ventas...</p>
+  }
   <p class="ventas-total">Total de Ventas: {{ fmt(totalVentas) }}</p>
   @if (infoMessage) {
     <p class="ventas-info">{{ infoMessage }}</p>

@@ -17,6 +17,9 @@
   </div>
 
   <p class="range-caption">{{ rangeLabel() }}</p>
+  <p class="range-caption">
+    Modo: {{ isCurrentPeriodSelected() ? 'Tiempo real activo' : 'Rango historico (sin tiempo real)' }}
+  </p>
 
   @if (cargando) {
     <p class="range-caption">Cargando…</p>

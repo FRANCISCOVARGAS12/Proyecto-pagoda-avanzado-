@@ -1,4 +1,4 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnDestroy, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ApiClientService } from '../../core/api/api-client.service';
 import { WebSocketService } from '../../core/websocket/websocket.service';
@@ -25,7 +25,7 @@ interface Top5State {
   templateUrl: './top5.html',
   styleUrl: './top5.css',
 })
-export class Top5Component implements OnInit {
+export class Top5Component implements OnInit, OnDestroy {
   // Filtros de rango
   rangePreset: RangePreset = 'custom';
   startDate = '';
@@ -35,6 +35,7 @@ export class Top5Component implements OnInit {
   top5: PlatilloTop[] = [];
   cargando = false;
   infoMessage = '';
+  private wsUnsubscribe: (() => void) | null = null;
 
   constructor(
     private apiClient: ApiClientService,
@@ -48,6 +49,11 @@ export class Top5Component implements OnInit {
     }
     await this.cargarTop5();
     this.suscribirActualizaciones();
+  }
+
+  ngOnDestroy(): void {
+    this.wsUnsubscribe?.();
+    this.wsUnsubscribe = null;
   }
 
   // ------------------------------------------------------------
@@ -119,9 +125,13 @@ export class Top5Component implements OnInit {
   // WebSocket (solo actualiza si el rango es un único día)
   // ------------------------------------------------------------
   private suscribirActualizaciones() {
-    this.wsService.subscribe('/topic/top5', (event: any) => {
+    this.wsUnsubscribe = this.wsService.subscribe('/topic/top5', (event: any) => {
       // event: { fecha: '2026-05-01', top5: [...] }
       if (!event || !event.fecha) return;
+
+      if (!this.isRealtimeEnabled()) {
+        return;
+      }
 
       const fechaEvento = String(event.fecha).slice(0, 10);
       if (!this.isDateInRange(fechaEvento)) return;
@@ -132,7 +142,7 @@ export class Top5Component implements OnInit {
         return;
       }
 
-      // Para rangos de varios días, recargar asegura agregados correctos.
+      // En tiempo real solo reflejamos la jornada/día activo.
       void this.cargarTop5();
     });
   }
@@ -152,6 +162,15 @@ export class Top5Component implements OnInit {
       return this.formatFecha(this.startDate);
     }
     return `${this.formatFecha(this.startDate)} a ${this.formatFecha(this.endDate)}`;
+  }
+
+  isRealtimeEnabled(): boolean {
+    if (!this.startDate || !this.endDate) {
+      return false;
+    }
+    const inicio = this.startDate <= this.endDate ? this.startDate : this.endDate;
+    const fin = this.endDate >= this.startDate ? this.endDate : this.startDate;
+    return inicio === fin;
   }
 
   // ------------------------------------------------------------

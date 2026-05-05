@@ -19,7 +19,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
         registry.addEndpoint("/ws-pagoda")
-                .setAllowedOriginPatterns("https://franciscovargas12.github.io", "http://localhost:4200")
+                .setAllowedOriginPatterns("https://*.github.io", "http://localhost:4200")
                 .withSockJS()
                 .setSuppressCors(true);
     }

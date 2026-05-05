@@ -1,6 +1,13 @@
 import { Injectable } from '@angular/core';
-import { Client } from '@stomp/stompjs';
+import { Client, StompSubscription } from '@stomp/stompjs';
 import SockJS from 'sockjs-client';
+
+interface WsSubscription {
+  id: number;
+  destination: string;
+  callback: (message: any) => void;
+  stompSubscription: StompSubscription | null;
+}
 
 @Injectable({
   providedIn: 'root'
@@ -8,8 +15,8 @@ import SockJS from 'sockjs-client';
 export class WebSocketService {
   private client: Client | null = null;
   private connected = false;
-  // Cola de suscripciones pendientes hasta que la conexión esté lista
-  private pendingSubscriptions: Array<{ destination: string; callback: (message: any) => void }> = [];
+  private subscriptions = new Map<number, WsSubscription>();
+  private nextSubscriptionId = 1;
 
   constructor() {
     console.log('🚀 WebSocketService inicializado');
@@ -18,6 +25,11 @@ export class WebSocketService {
   connect(): Promise<void> {
     return new Promise((resolve) => {
       if (this.connected) {
+        resolve();
+        return;
+      }
+
+      if (this.client?.active) {
         resolve();
         return;
       }
@@ -36,19 +48,13 @@ export class WebSocketService {
       this.client.onConnect = () => {
         this.connected = true;
         console.log('✅ WebSocket conectado');
-
-        // Volcar todas las suscripciones que llegaron mientras tanto
-        this.pendingSubscriptions.forEach(sub => {
-          this.client?.subscribe(sub.destination, (msg: any) => {
-            sub.callback(JSON.parse(msg.body));
-          });
-        });
-        this.pendingSubscriptions = []; // limpiar cola
+        this.restoreSubscriptions();
         resolve();
       };
 
       this.client.onDisconnect = () => {
         this.connected = false;
+        this.resetSubscriptionHandles();
         console.log('❌ WebSocket desconectado');
       };
 
@@ -69,28 +75,71 @@ export class WebSocketService {
   }
 
   /**
-   * Suscribirse a un destino. Si la conexión no está lista, la encola.
+   * Suscribirse a un destino.
+   * Regresa una función para cancelar la suscripción.
    */
-  subscribe(destination: string, callback: (message: any) => void): void {
-    if (!this.client || !this.connected) {
-      // Todavía no conectados; guardar para más tarde
-      console.log(`⏳ Encolando suscripción a ${destination}`);
-      this.pendingSubscriptions.push({ destination, callback });
-      return;
-    }
-    this.client.subscribe(destination, (msg: any) => {
-      callback(JSON.parse(msg.body));
-    });
+  subscribe(destination: string, callback: (message: any) => void): () => void {
+    const id = this.nextSubscriptionId++;
+    const subscription: WsSubscription = {
+      id,
+      destination,
+      callback,
+      stompSubscription: null,
+    };
+
+    this.subscriptions.set(id, subscription);
+    this.bindSubscription(subscription);
+
+    return () => this.unsubscribe(id);
   }
 
   disconnect(): void {
-    if (this.client && this.connected) {
+    if (this.client) {
       this.client.deactivate();
-      this.connected = false;
     }
+    this.connected = false;
+    this.resetSubscriptionHandles();
+    this.subscriptions.clear();
   }
 
   isConnected(): boolean {
     return this.connected;
+  }
+
+  private unsubscribe(id: number): void {
+    const subscription = this.subscriptions.get(id);
+    if (!subscription) {
+      return;
+    }
+
+    subscription.stompSubscription?.unsubscribe();
+    this.subscriptions.delete(id);
+  }
+
+  private bindSubscription(subscription: WsSubscription): void {
+    if (!this.client || !this.connected) {
+      return;
+    }
+
+    subscription.stompSubscription?.unsubscribe();
+    subscription.stompSubscription = this.client.subscribe(subscription.destination, (msg: any) => {
+      try {
+        subscription.callback(JSON.parse(msg.body));
+      } catch (error) {
+        console.error(`Error parseando mensaje de ${subscription.destination}:`, error);
+      }
+    });
+  }
+
+  private restoreSubscriptions(): void {
+    this.subscriptions.forEach((subscription) => {
+      this.bindSubscription(subscription);
+    });
+  }
+
+  private resetSubscriptionHandles(): void {
+    this.subscriptions.forEach((subscription) => {
+      subscription.stompSubscription = null;
+    });
   }
 }

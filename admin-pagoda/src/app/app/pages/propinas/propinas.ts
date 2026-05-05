@@ -1,4 +1,4 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnDestroy, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ApiClientService } from '../../core/api/api-client.service';
 import { WebSocketService } from '../../core/websocket/websocket.service';
@@ -22,12 +22,13 @@ interface PropinasState {
   templateUrl: './propinas.html',
   styleUrl: './propinas.css',
 })
-export class PropinasComponent implements OnInit {
+export class PropinasComponent implements OnInit, OnDestroy {
   startDate = '';      // ISO yyyy-mm-dd
   endDate = '';        // ISO yyyy-mm-dd
   acumulado = 0;
   cargando = false;
   infoMessage = '';
+  private wsUnsubscribe: (() => void) | null = null;
 
   constructor(
     private apiClient: ApiClientService,
@@ -41,6 +42,11 @@ export class PropinasComponent implements OnInit {
       await this.cargarPropinas();
     }
     this.suscribirActualizaciones();
+  }
+
+  ngOnDestroy(): void {
+    this.wsUnsubscribe?.();
+    this.wsUnsubscribe = null;
   }
 
   // ----------------------------------------------------------
@@ -92,13 +98,20 @@ export class PropinasComponent implements OnInit {
   // WebSocket – solo actualiza si el rango es el periodo actual
   // ----------------------------------------------------------
   private suscribirActualizaciones() {
-    this.wsService.subscribe('/topic/propinas', (event: any) => {
+    this.wsUnsubscribe = this.wsService.subscribe('/topic/propinas', (event: any) => {
       // event: { acumulado, periodoInicio }
       if (!event || !event.periodoInicio) return;
-      const periodoInicio = String(event.periodoInicio).slice(0, 10);
-      if (this.startDate === periodoInicio) {
-        this.acumulado = Number(event.acumulado ?? 0);
+
+      if (!this.isCurrentPeriodSelected()) {
+        return;
       }
+
+      const periodoInicio = String(event.periodoInicio).slice(0, 10);
+      const periodoFin = this.shiftIsoDate(periodoInicio, 14);
+      this.startDate = periodoInicio;
+      this.endDate = periodoFin;
+      this.acumulado = Number(event.acumulado ?? 0);
+      this.saveState();
     });
   }
 
@@ -150,6 +163,15 @@ export class PropinasComponent implements OnInit {
     return `${this.formatFecha(this.startDate)} – ${this.formatFecha(this.endDate)}`;
   }
 
+  isCurrentPeriodSelected(): boolean {
+    if (!this.startDate || !this.endDate) {
+      return false;
+    }
+
+    const current = this.current15DayPeriod();
+    return this.startDate === current.inicio && this.endDate === current.fin;
+  }
+
   // ----------------------------------------------------------
   // Utilidades
   // ----------------------------------------------------------
@@ -158,6 +180,23 @@ export class PropinasComponent implements OnInit {
     const m = (date.getMonth() + 1).toString().padStart(2, '0');
     const d = date.getDate().toString().padStart(2, '0');
     return `${y}-${m}-${d}`;
+  }
+
+  private shiftIsoDate(isoDate: string, days: number): string {
+    const base = new Date(`${isoDate}T00:00:00`);
+    base.setDate(base.getDate() + days);
+    return this.toISO(base);
+  }
+
+  private current15DayPeriod(): { inicio: string; fin: string } {
+    const hoy = new Date();
+    const inicio = new Date(hoy);
+    const diaMes = hoy.getDate();
+    const offset = (diaMes - 1) % 15;
+    inicio.setDate(hoy.getDate() - offset);
+    const fin = new Date(inicio);
+    fin.setDate(inicio.getDate() + 14);
+    return { inicio: this.toISO(inicio), fin: this.toISO(fin) };
   }
 
   private normalizarRango(): { inicio: string; fin: string } {

@@ -35,6 +35,20 @@
     opacity 0.2s ease;
 }
 
+.secondary-btn {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--background);
+  color: var(--foreground);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.68rem 1.1rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
 .primary-btn:hover {
   opacity: 0.98;
   transform: translateY(-1px);
@@ -43,6 +57,14 @@
 
 .primary-btn:active {
   transform: translateY(0);
+}
+
+.primary-btn:disabled,
+.secondary-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
 }
 
 .ventas-total {
@@ -61,6 +83,16 @@
   margin: -0.5rem 0 1rem;
   color: var(--muted-foreground);
   font-size: 0.9rem;
+}
+
+.ventas-info.error {
+  color: #c92a2a;
+}
+
+.ventas-loading {
+  margin: -0.4rem 0 0.7rem;
+  color: var(--muted-foreground);
+  font-size: 0.86rem;
 }
 
 .summary-grid {
