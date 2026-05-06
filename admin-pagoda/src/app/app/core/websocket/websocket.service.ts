@@ -1,5 +1,6 @@
 import { Injectable } from '@angular/core';
 import { Client, StompSubscription } from '@stomp/stompjs';
+import { Observable } from 'rxjs';
 import SockJS from 'sockjs-client';
 
 interface WsSubscription {
@@ -15,6 +16,9 @@ interface WsSubscription {
 export class WebSocketService {
   private client: Client | null = null;
   private connected = false;
+  private connecting = false;
+  private connectResolvers: Array<() => void> = [];
+  private connectTimeoutId: ReturnType<typeof setTimeout> | null = null;
   private subscriptions = new Map<number, WsSubscription>();
   private nextSubscriptionId = 1;
 
@@ -23,17 +27,11 @@ export class WebSocketService {
   }
 
   connect(): Promise<void> {
-    return new Promise((resolve) => {
-      if (this.connected) {
-        resolve();
-        return;
-      }
+    if (this.connected) {
+      return Promise.resolve();
+    }
 
-      if (this.client?.active) {
-        resolve();
-        return;
-      }
-
+    if (!this.client) {
       const serverUrl = 'https://pagoda-api-v1-1.onrender.com/ws-pagoda';
       console.log('Conectando a:', serverUrl);
 
@@ -47,38 +45,51 @@ export class WebSocketService {
 
       this.client.onConnect = () => {
         this.connected = true;
+        this.connecting = false;
+        this.clearConnectTimeout();
         console.log('✅ WebSocket conectado');
         this.restoreSubscriptions();
-        resolve();
+        this.resolvePendingConnects();
       };
 
       this.client.onDisconnect = () => {
         this.connected = false;
+        this.connecting = false;
         this.resetSubscriptionHandles();
         console.log('❌ WebSocket desconectado');
       };
 
       this.client.onStompError = (frame: any) => {
         console.error('Error STOMP:', frame.body);
-        resolve();
+        this.connecting = false;
+        this.clearConnectTimeout();
+        this.resolvePendingConnects();
       };
+    }
 
-      this.client.activate();
+    if (!this.connecting) {
+      this.connecting = true;
+      if (this.client && !this.client.active) {
+        this.client.activate();
+      }
+      this.ensureConnectTimeout();
+    }
 
-      setTimeout(() => {
-        if (!this.connected) {
-          console.warn('WebSocket tardando más de lo esperado...');
-          resolve();
-        }
-      }, 6000);
+    return new Promise((resolve) => {
+      this.connectResolvers.push(resolve);
     });
   }
 
-  /**
-   * Suscribirse a un destino.
-   * Regresa una función para cancelar la suscripción.
-   */
-  subscribe(destination: string, callback: (message: any) => void): () => void {
+  subscribe(destination: string, callback: (message: any) => void): () => void;
+  subscribe(destination: string): Observable<any>;
+  subscribe(destination: string, callback?: (message: any) => void): (() => void) | Observable<any> {
+    if (!callback) {
+      return new Observable<any>((observer) => {
+        const unsubscribe = this.subscribe(destination, (message: any) => observer.next(message));
+        return () => unsubscribe();
+      });
+    }
+
     const id = this.nextSubscriptionId++;
     const subscription: WsSubscription = {
       id,
@@ -89,6 +100,9 @@ export class WebSocketService {
 
     this.subscriptions.set(id, subscription);
     this.bindSubscription(subscription);
+    if (!this.connected) {
+      void this.connect();
+    }
 
     return () => this.unsubscribe(id);
   }
@@ -98,6 +112,9 @@ export class WebSocketService {
       this.client.deactivate();
     }
     this.connected = false;
+    this.connecting = false;
+    this.clearConnectTimeout();
+    this.resolvePendingConnects();
     this.resetSubscriptionHandles();
     this.subscriptions.clear();
   }
@@ -141,5 +158,32 @@ export class WebSocketService {
     this.subscriptions.forEach((subscription) => {
       subscription.stompSubscription = null;
     });
+  }
+
+  private ensureConnectTimeout(): void {
+    if (this.connectTimeoutId) {
+      return;
+    }
+    this.connectTimeoutId = setTimeout(() => {
+      if (!this.connected) {
+        console.warn('WebSocket tardando más de lo esperado...');
+      }
+      this.connecting = false;
+      this.clearConnectTimeout();
+      this.resolvePendingConnects();
+    }, 8000);
+  }
+
+  private clearConnectTimeout(): void {
+    if (this.connectTimeoutId) {
+      clearTimeout(this.connectTimeoutId);
+      this.connectTimeoutId = null;
+    }
+  }
+
+  private resolvePendingConnects(): void {
+    const resolvers = [...this.connectResolvers];
+    this.connectResolvers = [];
+    resolvers.forEach((resolve) => resolve());
   }
 }

@@ -1,4 +1,5 @@
-import { Component, OnDestroy, OnInit } from '@angular/core';
+import { ChangeDetectorRef, Component, OnDestroy, OnInit } from '@angular/core';
+import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ApiClientService } from '../../core/api/api-client.service';
 import { WebSocketService } from '../../core/websocket/websocket.service';
@@ -12,32 +13,41 @@ interface PlatilloTop {
   totalGenerado: number;
 }
 
+interface JornadaApi {
+  fecha: string;
+}
+
 @Component({
   selector: 'app-top5',
-  imports: [FormsModule],
+  standalone: true,
+  imports: [CommonModule, FormsModule],
   templateUrl: './top5.html',
-  styleUrl: './top5.css',
+  styleUrl: './top5.css'
 })
 export class Top5Component implements OnInit, OnDestroy {
-  // Filtros de rango
   rangePreset: RangePreset = 'custom';
   startDate = '';
   endDate = '';
+  minDate = '';
+  maxDate = '';
 
-  // Datos
   top5: PlatilloTop[] = [];
   cargando = false;
-  infoMessage = '';
+  error = '';
+  realtimeActivo = true;
+
   private wsUnsubscribe: (() => void) | null = null;
 
   constructor(
-    private apiClient: ApiClientService,
-    private wsService: WebSocketService
+    private readonly apiClient: ApiClientService,
+    private readonly wsService: WebSocketService,
+    private readonly cdr: ChangeDetectorRef,
   ) {}
 
-  async ngOnInit() {
-    await this.inicializarRango();
+  async ngOnInit(): Promise<void> {
+    await this.inicializarRangoGlobal();
     await this.cargarTop5();
+    await this.wsService.connect();
     this.suscribirActualizaciones();
   }
 
@@ -46,152 +56,124 @@ export class Top5Component implements OnInit, OnDestroy {
     this.wsUnsubscribe = null;
   }
 
-  // ------------------------------------------------------------
-  // Rango de fechas
-  // ------------------------------------------------------------
-  private async inicializarRango() {
-    try {
-      const jornada = await this.apiClient.getOrNull<any>('/api/operacion/jornadas/estado');
-      const fechaRef = jornada?.fecha?.slice(0, 10) ?? this.hoyISO();
-      this.startDate = fechaRef;
-      this.endDate = fechaRef;
-      this.rangePreset = 'custom'; // se muestra como personalizado
-    } catch {
-      const hoy = this.hoyISO();
-      this.startDate = hoy;
-      this.endDate = hoy;
-    }
-  }
+  async onPresetChange(): Promise<void> {
+    const today = new Date();
+    let start = new Date(today);
+    let end = new Date(today);
 
-  onPresetChange() {
     if (this.rangePreset === 'weekly') {
-      this.aplicarDias(-6);
+      start = new Date(today);
+      start.setDate(today.getDate() - 6);
     } else if (this.rangePreset === 'monthly') {
-      this.aplicarDias(-29);
+      start = new Date(today.getFullYear(), today.getMonth(), 1);
+      end = new Date(today.getFullYear(), today.getMonth() + 1, 0);
     }
-    // si es 'custom', no tocamos las fechas
-    void this.cargarTop5();
+
+    if (this.rangePreset !== 'custom') {
+      this.startDate = this.toISO(start);
+      this.endDate = this.toISO(end);
+      this.realtimeActivo = false;
+      await this.cargarTop5();
+    }
   }
 
-  onDateRangeChange() {
+  async onDateRangeChange(): Promise<void> {
+    if (!this.startDate || !this.endDate) {
+      return;
+    }
     this.rangePreset = 'custom';
-    void this.cargarTop5();
+    this.realtimeActivo = false;
+    await this.cargarTop5();
   }
 
-  private aplicarDias(dias: number) {
-    const fin = new Date();
-    const inicio = new Date();
-    inicio.setDate(fin.getDate() + dias);
-    this.endDate = this.toISO(fin);
-    this.startDate = this.toISO(inicio);
+  async activarTiempoReal(): Promise<void> {
+    if (!this.minDate || !this.maxDate) {
+      await this.inicializarRangoGlobal();
+    }
+    this.startDate = this.minDate;
+    this.endDate = this.maxDate;
+    this.rangePreset = 'custom';
+    this.realtimeActivo = true;
+    await this.cargarTop5();
   }
 
-  // ------------------------------------------------------------
-  // Carga de datos
-  // ------------------------------------------------------------
-  private async cargarTop5() {
-    this.cargando = true;
-    this.infoMessage = '';
+  private async inicializarRangoGlobal(): Promise<void> {
     try {
-      const { inicio, fin } = this.normalizarRango();
-      // Endpoint que acepte inicio y fin. Ajusta la URL según tu API real.
-      const url = `/api/reportes/platillos/top5?inicio=${inicio}&fin=${fin}`;
-      this.top5 = await this.apiClient.get<PlatilloTop[]>(url);
-    } catch (err) {
-      this.infoMessage = 'Error al cargar el top 5.';
-      console.error(err);
+      const jornadas = await this.apiClient.get<JornadaApi[]>('/api/operacion/jornadas');
+      const fechas = (jornadas || [])
+        .map((j) => String(j.fecha).slice(0, 10))
+        .filter((f) => /^\d{4}-\d{2}-\d{2}$/.test(f))
+        .sort((a, b) => a.localeCompare(b));
+
+      if (fechas.length > 0) {
+        this.minDate = fechas[0];
+        this.maxDate = fechas[fechas.length - 1];
+        this.startDate = this.minDate;
+        this.endDate = this.maxDate;
+        this.realtimeActivo = true;
+        return;
+      }
+    } catch {
+      // fallback local si el endpoint falla
+    }
+
+    const hoy = this.toISO(new Date());
+    this.minDate = hoy;
+    this.maxDate = hoy;
+    this.startDate = hoy;
+    this.endDate = hoy;
+    this.realtimeActivo = true;
+  }
+
+  private async cargarTop5(): Promise<void> {
+    if (!this.startDate || !this.endDate) {
       this.top5 = [];
+      return;
+    }
+
+    const { inicio, fin } = this.normalizarRango();
+    this.cargando = true;
+    this.error = '';
+    try {
+      const data = await this.apiClient.get<PlatilloTop[]>(
+        `/api/reportes/platillos/top5?inicio=${inicio}&fin=${fin}`,
+      );
+      this.top5 = [...(data || [])].sort((a, b) => b.totalGenerado - a.totalGenerado);
+    } catch (err) {
+      this.top5 = [];
+      this.error = 'No se pudo cargar el Top 5.';
+      console.error(err);
     } finally {
       this.cargando = false;
+      this.cdr.detectChanges();
     }
   }
 
-  // ------------------------------------------------------------
-  // WebSocket (solo actualiza si el rango es un único día)
-  // ------------------------------------------------------------
-  private suscribirActualizaciones() {
-    this.wsUnsubscribe = this.wsService.subscribe('/topic/top5', (event: any) => {
-      // event: { fecha: '2026-05-01', top5: [...] }
-      if (!event || !event.fecha) return;
-
-      if (!this.isRealtimeEnabled()) {
+  private suscribirActualizaciones(): void {
+    this.wsUnsubscribe = this.wsService.subscribe('/topic/top5', (_event: any) => {
+      if (!this.realtimeActivo) {
         return;
       }
-
-      const fechaEvento = String(event.fecha).slice(0, 10);
-      if (!this.isDateInRange(fechaEvento)) return;
-
-      // Si el rango mostrado es un único día, podemos usar el payload directamente.
-      if (this.startDate === this.endDate && this.startDate === fechaEvento && Array.isArray(event.top5)) {
-        this.top5 = event.top5;
-        return;
-      }
-
-      // En tiempo real solo reflejamos la jornada/día activo.
       void this.cargarTop5();
     });
   }
 
-  // ------------------------------------------------------------
-  // Formateo de fechas (día/mes/año)
-  // ------------------------------------------------------------
-  formatFecha(iso: string): string {
-    if (!iso || iso.length < 10) return iso;
-    const [y, m, d] = iso.split('-');
-    return `${d}/${m}/${y}`;
-  }
-
-  rangeLabel(): string {
-    if (!this.startDate || !this.endDate) return 'Sin rango definido';
-    if (this.startDate === this.endDate) {
-      return this.formatFecha(this.startDate);
-    }
-    return `${this.formatFecha(this.startDate)} a ${this.formatFecha(this.endDate)}`;
-  }
-
-  isRealtimeEnabled(): boolean {
-    if (!this.startDate || !this.endDate) {
-      return false;
-    }
-    const inicio = this.startDate <= this.endDate ? this.startDate : this.endDate;
-    const fin = this.endDate >= this.startDate ? this.endDate : this.startDate;
-    return inicio === fin;
-  }
-
-  // ------------------------------------------------------------
-  // Utilidades
-  // ------------------------------------------------------------
-  private hoyISO(): string {
-    return new Date().toISOString().slice(0, 10);
-  }
-
   private toISO(date: Date): string {
     const y = date.getFullYear();
-    const m = (date.getMonth() + 1).toString().padStart(2, '0');
-    const d = date.getDate().toString().padStart(2, '0');
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
     return `${y}-${m}-${d}`;
   }
 
   private normalizarRango(): { inicio: string; fin: string } {
-    if (!this.startDate || !this.endDate) {
-      return { inicio: this.startDate, fin: this.endDate };
-    }
-
     if (this.startDate <= this.endDate) {
       return { inicio: this.startDate, fin: this.endDate };
     }
-
     const inicio = this.endDate;
     const fin = this.startDate;
     this.startDate = inicio;
     this.endDate = fin;
     return { inicio, fin };
-  }
-
-  private isDateInRange(isoDate: string): boolean {
-    const start = this.startDate <= this.endDate ? this.startDate : this.endDate;
-    const end = this.endDate >= this.startDate ? this.endDate : this.startDate;
-    return Boolean(isoDate && start && end && isoDate >= start && isoDate <= end);
   }
 
   fmt(n: number): string {

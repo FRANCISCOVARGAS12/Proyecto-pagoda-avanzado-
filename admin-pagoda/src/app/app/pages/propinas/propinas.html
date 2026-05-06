@@ -16,11 +16,6 @@
     <div class="tip-card">
       <p>Total acumulado de propinas</p>
       <strong>{{ cargando ? '…' : fmt(acumulado) }}</strong>
-      <small>{{ rangeLabel() }}</small>
     </div>
   </div>
-
-  @if (infoMessage) {
-    <p class="range-caption">{{ infoMessage }}</p>
-  }
 </section>

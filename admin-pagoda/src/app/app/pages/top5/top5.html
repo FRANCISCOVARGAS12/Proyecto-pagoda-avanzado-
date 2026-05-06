@@ -10,29 +10,52 @@
 
     <div class="date-field">
       <label for="startDate">Fecha de Inicio</label>
-      <input id="startDate" type="date" [(ngModel)]="startDate" (change)="onDateRangeChange()" />
+      <input
+        id="startDate"
+        type="date"
+        [(ngModel)]="startDate"
+        [min]="minDate"
+        [max]="maxDate"
+        (change)="onDateRangeChange()"
+      />
     </div>
+
     <div class="date-field">
       <label for="endDate">Fecha de Fin</label>
-      <input id="endDate" type="date" [(ngModel)]="endDate" (change)="onDateRangeChange()" />
+      <input
+        id="endDate"
+        type="date"
+        [(ngModel)]="endDate"
+        [min]="minDate"
+        [max]="maxDate"
+        (change)="onDateRangeChange()"
+      />
     </div>
+
+    <button type="button" class="btn" (click)="activarTiempoReal()">
+      Tiempo real
+    </button>
   </div>
 
-  @if (!cargando && !top5.length) {
+  @if (error) {
+    <p class="table-footnote">{{ error }}</p>
+  }
+
+  @if (!cargando && !top5.length && !error) {
     <p class="table-footnote">No hay datos para el rango seleccionado.</p>
   }
 
-  @if (!cargando && top5.length) {
+  @if (top5.length) {
     <div class="table-shell">
       <table>
         <thead>
-        <tr>
-          <th class="w-24">Posición</th>
-          <th>Nombre del Platillo</th>
-          <th>Categoría</th>
-          <th class="right w-36">Cantidad Vendida</th>
-          <th class="right w-36">Total Generado</th>
-        </tr>
+          <tr>
+            <th class="w-24">Posición</th>
+            <th>Nombre del Platillo</th>
+            <th>Categoría</th>
+            <th class="right w-36">Cantidad Vendida</th>
+            <th class="right w-36">Total Generado</th>
+          </tr>
         </thead>
         <tbody>
           @for (product of top5; track product.nombre; let i = $index) {

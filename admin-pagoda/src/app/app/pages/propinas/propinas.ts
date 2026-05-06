@@ -1,5 +1,6 @@
 import { Component, OnDestroy, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { Subscription } from 'rxjs';
 import { ApiClientService } from '../../core/api/api-client.service';
 import { WebSocketService } from '../../core/websocket/websocket.service';
 
@@ -16,34 +17,34 @@ interface PropinasResponse {
   styleUrl: './propinas.css',
 })
 export class PropinasComponent implements OnInit, OnDestroy {
-  startDate = '';      // ISO yyyy-mm-dd
-  endDate = '';        // ISO yyyy-mm-dd
+  startDate = '';
+  endDate = '';
   acumulado = 0;
   cargando = false;
   infoMessage = '';
-  private wsUnsubscribe: (() => void) | null = null;
+  private wsSubscription: Subscription | null = null;
+  private manualMode = false;
 
   constructor(
     private apiClient: ApiClientService,
     private wsService: WebSocketService
   ) {}
 
-  async ngOnInit() {
+  async ngOnInit(): Promise<void> {
     await this.cargarPeriodoActual();
+    await this.wsService.connect();
     this.suscribirActualizaciones();
   }
 
   ngOnDestroy(): void {
-    this.wsUnsubscribe?.();
-    this.wsUnsubscribe = null;
+    this.wsSubscription?.unsubscribe();
+    this.wsSubscription = null;
   }
 
-  // ----------------------------------------------------------
-  // Cálculo del periodo actual de 15 días
-  // ----------------------------------------------------------
-  private async cargarPeriodoActual() {
+  private async cargarPeriodoActual(): Promise<void> {
     this.cargando = true;
     this.infoMessage = '';
+    this.manualMode = false;
     try {
       const data = await this.apiClient.get<PropinasResponse>('/api/reportes/propinas/actual');
       this.startDate = String(data.inicio).slice(0, 10);
@@ -58,10 +59,7 @@ export class PropinasComponent implements OnInit, OnDestroy {
     }
   }
 
-  // ----------------------------------------------------------
-  // Carga desde API
-  // ----------------------------------------------------------
-  private async cargarPropinas() {
+  private async cargarPropinas(): Promise<void> {
     this.cargando = true;
     this.infoMessage = '';
     try {
@@ -81,36 +79,32 @@ export class PropinasComponent implements OnInit, OnDestroy {
     }
   }
 
-  // ----------------------------------------------------------
-  // WebSocket – solo actualiza si el rango es el periodo actual
-  // ----------------------------------------------------------
-  private suscribirActualizaciones() {
-    this.wsUnsubscribe = this.wsService.subscribe('/topic/propinas', (event: any) => {
-      // event: { acumulado, periodoInicio }
-      if (!event || !event.periodoInicio) return;
-
-      if (!this.isCurrentPeriodSelected()) {
-        return;
+  private suscribirActualizaciones(): void {
+    this.wsSubscription = this.wsService.subscribe('/topic/propinas').subscribe({
+      next: (event: any) => {
+        if (this.manualMode || !event || !event.periodoInicio) {
+          return;
+        }
+        const periodoInicio = String(event.periodoInicio).slice(0, 10);
+        const periodoFin = this.shiftIsoDate(periodoInicio, 14);
+        this.startDate = periodoInicio;
+        this.endDate = periodoFin;
+        this.acumulado = Number(event.acumulado ?? 0);
+      },
+      error: (err: any) => {
+        console.error('Error suscripción propinas:', err);
       }
-
-      const periodoInicio = String(event.periodoInicio).slice(0, 10);
-      const periodoFin = this.shiftIsoDate(periodoInicio, 14);
-      this.startDate = periodoInicio;
-      this.endDate = periodoFin;
-      this.acumulado = Number(event.acumulado ?? 0);
     });
   }
 
-  // ----------------------------------------------------------
-  // Al cambiar fechas manualmente
-  // ----------------------------------------------------------
-  onDateRangeChange() {
+  onDateRangeChange(): void {
+    if (!this.startDate || !this.endDate) {
+      return;
+    }
+    this.manualMode = true;
     void this.cargarPropinas();
   }
 
-  // ----------------------------------------------------------
-  // Formato de fechas (día/mes/año)
-  // ----------------------------------------------------------
   formatFecha(iso: string): string {
     if (!iso || iso.length < 10) return iso;
     const [y, m, d] = iso.split('-');
@@ -122,18 +116,6 @@ export class PropinasComponent implements OnInit, OnDestroy {
     return `${this.formatFecha(this.startDate)} – ${this.formatFecha(this.endDate)}`;
   }
 
-  isCurrentPeriodSelected(): boolean {
-    if (!this.startDate || !this.endDate) {
-      return false;
-    }
-
-    const current = this.current15DayPeriod();
-    return this.startDate === current.inicio && this.endDate === current.fin;
-  }
-
-  // ----------------------------------------------------------
-  // Utilidades
-  // ----------------------------------------------------------
   private toISO(date: Date): string {
     const y = date.getFullYear();
     const m = (date.getMonth() + 1).toString().padStart(2, '0');
@@ -145,17 +127,6 @@ export class PropinasComponent implements OnInit, OnDestroy {
     const base = new Date(`${isoDate}T00:00:00`);
     base.setDate(base.getDate() + days);
     return this.toISO(base);
-  }
-
-  private current15DayPeriod(): { inicio: string; fin: string } {
-    const hoy = new Date();
-    const inicio = new Date(hoy);
-    const diaMes = hoy.getDate();
-    const offset = (diaMes - 1) % 15;
-    inicio.setDate(hoy.getDate() - offset);
-    const fin = new Date(inicio);
-    fin.setDate(inicio.getDate() + 14);
-    return { inicio: this.toISO(inicio), fin: this.toISO(fin) };
   }
 
   private normalizarRango(): { inicio: string; fin: string } {

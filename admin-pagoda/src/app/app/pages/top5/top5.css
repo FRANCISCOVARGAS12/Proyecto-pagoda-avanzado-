@@ -41,6 +41,17 @@
   padding: 0.55rem 0.75rem;
 }
 
+.btn {
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--card);
+  color: var(--foreground);
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-weight: 600;
+  padding: 0.55rem 0.85rem;
+}
+
 .table-shell {
   border: 1px solid var(--border);
   border-radius: 0.5rem;
