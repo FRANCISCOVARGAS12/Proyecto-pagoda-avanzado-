@@ -18,16 +18,11 @@
     </div>
   </div>
 
-  <p class="range-caption">Rango seleccionado: {{ rangeLabel() }}</p>
-  <p class="range-caption">
-    Modo: {{ isRealtimeEnabled() ? 'Tiempo real activo' : 'Rango historico (sin tiempo real)' }}
-  </p>
-
-  @if (cargando) {
-    <p class="table-footnote">Cargando…</p>
-  } @else if (!top5.length) {
+  @if (!cargando && !top5.length) {
     <p class="table-footnote">No hay datos para el rango seleccionado.</p>
-  } @else {
+  }
+
+  @if (!cargando && top5.length) {
     <div class="table-shell">
       <table>
         <thead>
@@ -53,6 +48,4 @@
       </table>
     </div>
   }
-
-  <p class="table-footnote">Ordenado por total generado · de mayor a menor</p>
 </section>

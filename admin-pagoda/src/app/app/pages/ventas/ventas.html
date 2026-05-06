@@ -16,6 +16,8 @@
       type="date"
       [(ngModel)]="startDate"
       (change)="onDateRangeChange()"
+      [attr.min]="minFechaConsulta || null"
+      [attr.max]="maxFechaConsulta || null"
       class="control-input"
     />
 
@@ -23,6 +25,8 @@
       type="date"
       [(ngModel)]="endDate"
       (change)="onDateRangeChange()"
+      [attr.min]="minFechaConsulta || null"
+      [attr.max]="maxFechaConsulta || null"
       class="control-input"
     />
 
@@ -58,6 +62,9 @@
   }
   @if (isDateRangeInvalid()) {
     <p class="ventas-info error">La fecha fin no puede ser menor que la fecha inicio.</p>
+  }
+  @if (isDateOutOfAvailableRange()) {
+    <p class="ventas-info error">Solo puedes consultar fechas entre {{ availableRangeLabel() }}.</p>
   }
   @if (cargandoResumen) {
     <p class="ventas-loading">Consultando ventas...</p>

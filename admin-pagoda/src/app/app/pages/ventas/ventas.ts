@@ -75,6 +75,8 @@ export class Ventas implements OnInit, OnDestroy {
   protected rangePreset: RangePreset = 'weekly';
   protected startDate = '';
   protected endDate = '';
+  protected minFechaConsulta = '';
+  protected maxFechaConsulta = '';
   protected jornadas: JornadaApi[] = [];
   protected jornadasFiltradas: JornadaApi[] = [];
   protected selectedJornadaId: JornadaSelection | null = null;
@@ -135,6 +137,7 @@ export class Ventas implements OnInit, OnDestroy {
           // Actualizar estado a ABIERTA
           this.jornadas = this.jornadas.map(j => j.id === nueva.id ? nueva : j);
         }
+        this.updateDateBoundsFromJornadas();
         this.applyJornadaFilter();
         this.jornadaAbiertaId = nueva.id;
         this.jornadaAbierta = true;
@@ -148,6 +151,7 @@ export class Ventas implements OnInit, OnDestroy {
         this.jornadas = this.jornadas.map(j =>
           j.id === cerrada.id ? { ...j, estado: 'CERRADA' } : j
         );
+        this.updateDateBoundsFromJornadas();
         this.applyJornadaFilter();
         if (this.jornadaAbiertaId === cerrada.id) {
           this.jornadaAbiertaId = null;
@@ -196,7 +200,12 @@ export class Ventas implements OnInit, OnDestroy {
   }
 
   protected async applyFilters(): Promise<void> {
+    this.infoMessage = '';
     if (this.isDateRangeInvalid()) {
+      return;
+    }
+    if (this.isDateOutOfAvailableRange()) {
+      this.infoMessage = `Solo puedes consultar entre ${this.availableRangeLabel()}.`;
       return;
     }
 
@@ -223,8 +232,29 @@ export class Ventas implements OnInit, OnDestroy {
     return Boolean(this.startDate && this.endDate && this.endDate < this.startDate);
   }
 
+  protected isDateOutOfAvailableRange(): boolean {
+    if (!this.minFechaConsulta || !this.maxFechaConsulta) {
+      return false;
+    }
+    const { start, end } = this.normalizedRangeFrom(this.startDate, this.endDate);
+    if (!start || !end) {
+      return false;
+    }
+    return start < this.minFechaConsulta || end > this.maxFechaConsulta;
+  }
+
+  protected availableRangeLabel(): string {
+    if (!this.minFechaConsulta || !this.maxFechaConsulta) {
+      return 'rango disponible';
+    }
+    if (this.minFechaConsulta === this.maxFechaConsulta) {
+      return this.formatDate(this.minFechaConsulta);
+    }
+    return `${this.formatDate(this.minFechaConsulta)} a ${this.formatDate(this.maxFechaConsulta)}`;
+  }
+
   protected isApplyDisabled(): boolean {
-    return this.cargandoResumen || this.isDateRangeInvalid();
+    return this.cargandoResumen || this.isDateRangeInvalid() || this.isDateOutOfAvailableRange();
   }
 
   protected jornadaLabel(jornada: JornadaApi): string {
@@ -561,6 +591,7 @@ export class Ventas implements OnInit, OnDestroy {
         }
         return fechaB.localeCompare(fechaA);
       });
+      this.updateDateBoundsFromJornadas();
 
       // Prioridad: 1. Abierta, 2. Última registrada, 3. Hoy
       const referenceDate =
@@ -745,6 +776,39 @@ export class Ventas implements OnInit, OnDestroy {
       const jornadaDate = this.isoDateKey(jornada.fecha);
       return jornadaDate >= start && jornadaDate <= end;
     });
+  }
+
+  private updateDateBoundsFromJornadas(): void {
+    if (!this.jornadas.length) {
+      this.minFechaConsulta = '';
+      this.maxFechaConsulta = '';
+      return;
+    }
+
+    const fechas = this.jornadas
+      .map((jornada) => this.isoDateKey(jornada.fecha))
+      .filter((fecha) => /^\d{4}-\d{2}-\d{2}$/.test(fecha));
+
+    if (!fechas.length) {
+      this.minFechaConsulta = '';
+      this.maxFechaConsulta = '';
+      return;
+    }
+
+    this.minFechaConsulta = fechas.reduce((min, fecha) => (fecha < min ? fecha : min), fechas[0]);
+    this.maxFechaConsulta = fechas.reduce((max, fecha) => (fecha > max ? fecha : max), fechas[0]);
+
+    if (this.startDate && this.startDate < this.minFechaConsulta) {
+      this.startDate = this.minFechaConsulta;
+    } else if (this.startDate && this.startDate > this.maxFechaConsulta) {
+      this.startDate = this.maxFechaConsulta;
+    }
+
+    if (this.endDate && this.endDate < this.minFechaConsulta) {
+      this.endDate = this.minFechaConsulta;
+    } else if (this.endDate && this.endDate > this.maxFechaConsulta) {
+      this.endDate = this.maxFechaConsulta;
+    }
   }
 
   private toIsoDate(date: Date): string {
