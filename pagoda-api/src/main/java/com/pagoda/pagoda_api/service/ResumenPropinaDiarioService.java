@@ -2,6 +2,7 @@ package com.pagoda.pagoda_api.service;
 
 import com.pagoda.pagoda_api.entity.reportes.ResumenPropinaDiario;
 import com.pagoda.pagoda_api.repository.reportes.ResumenPropinasRepository;
+import com.pagoda.pagoda_api.repository.ventas.PagoRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -15,6 +16,7 @@ import java.util.List;
 public class ResumenPropinaDiarioService {
 
     private final ResumenPropinasRepository repository;
+    private final PagoRepository pagoRepository;
 
     public List<ResumenPropinaDiario> listarPorJornada(Integer jornadaId) {
         return repository.findByJornadaId(jornadaId);
@@ -27,7 +29,7 @@ public class ResumenPropinaDiarioService {
 
     // ✅ Total de propinas en cualquier rango de fechas
     public BigDecimal getTotalPropinaEntreFechas(LocalDate inicio, LocalDate fin) {
-        return repository.sumPropinasBetween(inicio, fin);
+        return pagoRepository.sumPropinasNetasByRango(inicio, fin);
     }
 
     // ✅ Total en el periodo actual de 15 días (deslizante)

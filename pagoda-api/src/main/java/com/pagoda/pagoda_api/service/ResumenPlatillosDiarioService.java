@@ -2,10 +2,12 @@ package com.pagoda.pagoda_api.service;
 
 import com.pagoda.pagoda_api.entity.reportes.ResumenPlatillosDiario;
 import com.pagoda.pagoda_api.repository.reportes.ResumenPlatillosRepository;
+import com.pagoda.pagoda_api.repository.ventas.ItemVentaRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
@@ -18,6 +20,7 @@ import java.util.stream.Collectors;
 public class ResumenPlatillosDiarioService {
 
     private final ResumenPlatillosRepository repository;
+    private final ItemVentaRepository itemVentaRepository;
 
     public List<ResumenPlatillosDiario> listarPorJornada(Integer jornadaId) {
         return repository.findByJornadaId(jornadaId);
@@ -33,7 +36,7 @@ public class ResumenPlatillosDiarioService {
     }
 
     public List<Object[]> obtenerTop5(LocalDate inicio, LocalDate fin) {
-        return repository.findTop5ByFechaBetween(inicio, fin, PageRequest.of(0, 5));
+        return itemVentaRepository.findTop5ByRango(inicio, fin, PageRequest.of(0, 5));
     }
 
     public List<Map<String, Object>> obtenerTop5Resumen(LocalDate inicio, LocalDate fin) {
@@ -41,8 +44,8 @@ public class ResumenPlatillosDiarioService {
             Map<String, Object> map = new LinkedHashMap<>();
             map.put("nombre", row[0]);
             map.put("categoria", row[1] != null ? row[1] : "Sin categoría");
-            map.put("cantidadVendida", row[2]);
-            map.put("totalGenerado", row[3]);
+            map.put("cantidadVendida", row[2] instanceof Number ? ((Number) row[2]).intValue() : 0);
+            map.put("totalGenerado", row[3] instanceof BigDecimal ? row[3] : BigDecimal.ZERO);
             return map;
         }).collect(Collectors.toList());
     }

@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -55,8 +56,7 @@ public class VentaService {
         Venta saved = ventaRepository.save(venta);
 
         // Publicar evento de pedido creado
-        messagingTemplate.convertAndSend("/topic/pedido",
-                (Object) Map.of("accion", "CREADO", "pedido", saved));
+        publishPedidoEvent("CREADO", saved);
 
         return saved;
     }
@@ -70,8 +70,7 @@ public class VentaService {
         Venta saved = ventaRepository.save(venta);
 
         // Publicar evento de pedido cerrado (reemplaza la antigua publicación a /topic/ventas)
-        messagingTemplate.convertAndSend("/topic/pedido",
-                (Object) Map.of("accion", "CERRADO", "pedido", saved));
+        publishPedidoEvent("CERRADO", saved);
 
         LocalDate fechaEvento = saved.getJornada() != null && saved.getJornada().getFecha() != null
                 ? saved.getJornada().getFecha()
@@ -90,5 +89,19 @@ public class VentaService {
                 (Object) Map.of("acumulado", acumulado, "periodoInicio", periodoInicio.toString()));
 
         return saved;
+    }
+
+    private void publishPedidoEvent(String accion, Venta venta) {
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("accion", accion);
+        payload.put("pedido", venta);
+        payload.put("pedidoId", venta.getId());
+        if (venta.getJornada() != null) {
+            payload.put("jornadaId", venta.getJornada().getId());
+            if (venta.getJornada().getFecha() != null) {
+                payload.put("fechaJornada", venta.getJornada().getFecha().toString());
+            }
+        }
+        messagingTemplate.convertAndSend("/topic/pedido", (Object) payload);
     }
 }

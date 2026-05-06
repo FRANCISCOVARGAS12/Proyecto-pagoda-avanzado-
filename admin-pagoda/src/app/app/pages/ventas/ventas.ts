@@ -97,6 +97,8 @@ export class Ventas implements OnInit, OnDestroy {
   private appliedEndDate = '';
   private appliedJornadaId: JornadaSelection | null = null;
   private wsUnsubscribers: Array<() => void> = [];
+  private realtimeRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+  private resumenRequestSeq = 0;
   protected jornadaAbierta = false;
 
   constructor(
@@ -122,6 +124,10 @@ export class Ventas implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     this.wsUnsubscribers.forEach((unsubscribe) => unsubscribe());
     this.wsUnsubscribers = [];
+    if (this.realtimeRefreshTimer) {
+      clearTimeout(this.realtimeRefreshTimer);
+      this.realtimeRefreshTimer = null;
+    }
   }
 
   // NUEVO: suscripciones a eventos de jornada y pedido
@@ -169,14 +175,16 @@ export class Ventas implements OnInit, OnDestroy {
 
     // Escuchar nuevos pedidos/cierre de pedidos
     const unsubPedido = this.wsService.subscribe('/topic/pedido', (event: any) => {
-      // event: { accion: 'CREADO'|'CERRADO', pedido: { id, jornada: { id }, ... } }
-      if (!event.pedido || !event.pedido.jornada?.id) return;
-      const jornadaIdPedido = event.pedido.jornada.id;
+      const jornadaIdPedido = this.extractPedidoJornadaId(event);
+      if (!jornadaIdPedido) {
+        return;
+      }
 
-      if (!this.isPedidoInAppliedScope(jornadaIdPedido)) return;
+      if (!this.isPedidoInAppliedScope(jornadaIdPedido)) {
+        return;
+      }
 
-      // Recargar los pedidos (seguro y simple)
-      void this.loadResumenVentas();
+      this.scheduleRealtimeRefresh();
     });
     this.wsUnsubscribers.push(unsubPedido);
   }
@@ -503,25 +511,30 @@ export class Ventas implements OnInit, OnDestroy {
   }
 
   private async loadResumenVentas(): Promise<void> {
+    const requestSeq = ++this.resumenRequestSeq;
     this.cargandoResumen = true;
     this.infoMessage = '';
-    this.totalVentas = 0;
-    this.totalEfectivo = 0;
-    this.totalTarjetaBruto = 0;
-    this.totalTarjetaNeto = 0;
-    this.ordersData = [];
-    this.expandedOrders.clear();
+    let fondoInicial = this.fondoInicial;
 
     try {
       const parametros = await this.apiClient.get<ParametrosLocalApi>('/api/operacion/parametros');
-      this.fondoInicial = Number(parametros.fondoLunes ?? this.fondoInicial);
+      fondoInicial = Number(parametros.fondoLunes ?? fondoInicial);
     } catch {
       // Mantiene fallback visual en caso de no haber parametros.
     }
-    this.totalVentas = this.fondoInicial;
 
     const jornadasSeleccionadas = this.getSelectedJornadasForAppliedFilters();
     if (!jornadasSeleccionadas.length) {
+      if (requestSeq !== this.resumenRequestSeq) {
+        return;
+      }
+      this.fondoInicial = fondoInicial;
+      this.totalEfectivo = 0;
+      this.totalTarjetaBruto = 0;
+      this.totalTarjetaNeto = 0;
+      this.totalVentas = fondoInicial;
+      this.ordersData = [];
+      this.expandedOrders.clear();
       this.infoMessage = 'No hay jornadas en el rango seleccionado.';
       this.cargandoResumen = false;
       return;
@@ -534,6 +547,16 @@ export class Ventas implements OnInit, OnDestroy {
       const ventas = ventasAgrupadas.flat();
 
       if (!ventas.length) {
+        if (requestSeq !== this.resumenRequestSeq) {
+          return;
+        }
+        this.fondoInicial = fondoInicial;
+        this.totalEfectivo = 0;
+        this.totalTarjetaBruto = 0;
+        this.totalTarjetaNeto = 0;
+        this.totalVentas = fondoInicial;
+        this.ordersData = [];
+        this.expandedOrders.clear();
         this.infoMessage = 'No hay ventas registradas en el rango seleccionado.';
         return;
       }
@@ -551,21 +574,33 @@ export class Ventas implements OnInit, OnDestroy {
         }),
       );
 
-      this.ordersData = orders;
-      this.totalEfectivo = orders.reduce(
+      if (requestSeq !== this.resumenRequestSeq) {
+        return;
+      }
+
+      const totalEfectivo = orders.reduce(
         (accumulator, order) => accumulator + Number(order.efectivoAmount ?? 0),
         0,
       );
-      this.totalTarjetaBruto = orders.reduce(
+      const totalTarjetaBruto = orders.reduce(
         (accumulator, order) => accumulator + Number(order.tarjetaBruto ?? 0),
         0,
       );
-      this.totalTarjetaNeto = orders.reduce(
+      const totalTarjetaNeto = orders.reduce(
         (accumulator, order) => accumulator + Number(order.tarjetaNeto ?? 0),
         0,
       );
-      this.totalVentas = this.fondoInicial + this.totalEfectivo + this.totalTarjetaNeto;
+
+      this.fondoInicial = fondoInicial;
+      this.ordersData = orders;
+      this.totalEfectivo = totalEfectivo;
+      this.totalTarjetaBruto = totalTarjetaBruto;
+      this.totalTarjetaNeto = totalTarjetaNeto;
+      this.totalVentas = fondoInicial + totalEfectivo + totalTarjetaNeto;
     } catch (error) {
+      if (requestSeq !== this.resumenRequestSeq) {
+        return;
+      }
       this.infoMessage =
         error instanceof Error && error.message
           ? error.message
@@ -896,6 +931,29 @@ export class Ventas implements OnInit, OnDestroy {
       return this.isoDateKey(this.jornadas[0].fecha);
     }
     return this.toIsoDate(new Date());
+  }
+
+  private scheduleRealtimeRefresh(): void {
+    if (this.realtimeRefreshTimer) {
+      return;
+    }
+
+    this.realtimeRefreshTimer = setTimeout(() => {
+      this.realtimeRefreshTimer = null;
+      void this.loadResumenVentas();
+    }, 180);
+  }
+
+  private extractPedidoJornadaId(event: any): number | null {
+    const candidate =
+      event?.jornadaId ??
+      event?.pedido?.jornadaId ??
+      event?.pedido?.jornada?.id ??
+      event?.venta?.jornadaId ??
+      event?.venta?.jornada?.id;
+
+    const parsed = Number(candidate);
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
   }
 
   private isPedidoInAppliedScope(jornadaId: number): boolean {

@@ -1,6 +1,5 @@
 import { Component, OnDestroy, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Subscription } from 'rxjs';
 import { ApiClientService } from '../../core/api/api-client.service';
 import { WebSocketService } from '../../core/websocket/websocket.service';
 
@@ -22,8 +21,9 @@ export class PropinasComponent implements OnInit, OnDestroy {
   acumulado = 0;
   cargando = false;
   infoMessage = '';
-  private wsSubscription: Subscription | null = null;
+  private wsUnsubscribe: (() => void) | null = null;
   private manualMode = false;
+  private readonly requestTimeoutMs = 10000;
 
   constructor(
     private apiClient: ApiClientService,
@@ -31,14 +31,17 @@ export class PropinasComponent implements OnInit, OnDestroy {
   ) {}
 
   async ngOnInit(): Promise<void> {
+    const periodoInicial = this.current15DayPeriod();
+    this.startDate = periodoInicial.inicio;
+    this.endDate = periodoInicial.fin;
     await this.cargarPeriodoActual();
-    await this.wsService.connect();
+    void this.wsService.connect();
     this.suscribirActualizaciones();
   }
 
   ngOnDestroy(): void {
-    this.wsSubscription?.unsubscribe();
-    this.wsSubscription = null;
+    this.wsUnsubscribe?.();
+    this.wsUnsubscribe = null;
   }
 
   private async cargarPeriodoActual(): Promise<void> {
@@ -46,7 +49,9 @@ export class PropinasComponent implements OnInit, OnDestroy {
     this.infoMessage = '';
     this.manualMode = false;
     try {
-      const data = await this.apiClient.get<PropinasResponse>('/api/reportes/propinas/actual');
+      const data = await this.withTimeout(
+        this.apiClient.get<PropinasResponse>('/api/reportes/propinas/actual'),
+      );
       this.startDate = String(data.inicio).slice(0, 10);
       this.endDate = String(data.fin).slice(0, 10);
       this.acumulado = Number(data.acumulado ?? 0);
@@ -64,8 +69,8 @@ export class PropinasComponent implements OnInit, OnDestroy {
     this.infoMessage = '';
     try {
       const { inicio, fin } = this.normalizarRango();
-      const data = await this.apiClient.get<PropinasResponse>(
-        `/api/reportes/propinas?inicio=${inicio}&fin=${fin}`
+      const data = await this.withTimeout(
+        this.apiClient.get<PropinasResponse>(`/api/reportes/propinas?inicio=${inicio}&fin=${fin}`)
       );
       this.startDate = String(data.inicio).slice(0, 10);
       this.endDate = String(data.fin).slice(0, 10);
@@ -80,20 +85,27 @@ export class PropinasComponent implements OnInit, OnDestroy {
   }
 
   private suscribirActualizaciones(): void {
-    this.wsSubscription = this.wsService.subscribe('/topic/propinas').subscribe({
-      next: (event: any) => {
-        if (this.manualMode || !event || !event.periodoInicio) {
-          return;
-        }
-        const periodoInicio = String(event.periodoInicio).slice(0, 10);
-        const periodoFin = this.shiftIsoDate(periodoInicio, 14);
-        this.startDate = periodoInicio;
-        this.endDate = periodoFin;
-        this.acumulado = Number(event.acumulado ?? 0);
-      },
-      error: (err: any) => {
-        console.error('Error suscripción propinas:', err);
+    this.wsUnsubscribe = this.wsService.subscribe('/topic/propinas', (event: any) => {
+      if (this.manualMode) {
+        return;
       }
+
+      const periodoInicio = typeof event?.periodoInicio === 'string'
+        ? String(event.periodoInicio).slice(0, 10)
+        : '';
+
+      if (periodoInicio) {
+        this.startDate = periodoInicio;
+        this.endDate = this.shiftIsoDate(periodoInicio, 14);
+      }
+
+      const acumulado = Number(event?.acumulado);
+      if (Number.isFinite(acumulado)) {
+        this.acumulado = acumulado;
+        return;
+      }
+
+      void this.cargarPeriodoActual();
     });
   }
 
@@ -101,6 +113,14 @@ export class PropinasComponent implements OnInit, OnDestroy {
     if (!this.startDate || !this.endDate) {
       return;
     }
+
+    const periodoActual = this.current15DayPeriod();
+    if (this.startDate === periodoActual.inicio && this.endDate === periodoActual.fin) {
+      this.manualMode = false;
+      void this.cargarPeriodoActual();
+      return;
+    }
+
     this.manualMode = true;
     void this.cargarPropinas();
   }
@@ -143,6 +163,26 @@ export class PropinasComponent implements OnInit, OnDestroy {
     this.startDate = inicio;
     this.endDate = fin;
     return { inicio, fin };
+  }
+
+  private current15DayPeriod(): { inicio: string; fin: string } {
+    const hoy = new Date();
+    const inicio = new Date(hoy);
+    const diaMes = hoy.getDate();
+    const offset = (diaMes - 1) % 15;
+    inicio.setDate(hoy.getDate() - offset);
+    const fin = new Date(inicio);
+    fin.setDate(inicio.getDate() + 14);
+    return { inicio: this.toISO(inicio), fin: this.toISO(fin) };
+  }
+
+  private async withTimeout<T>(promise: Promise<T>): Promise<T> {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        setTimeout(() => reject(new Error('Tiempo de espera agotado para propinas.')), this.requestTimeoutMs);
+      }),
+    ]);
   }
 
   fmt(n: number): string {
