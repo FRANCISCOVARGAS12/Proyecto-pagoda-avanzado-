@@ -20,6 +20,8 @@ class OrderProvider extends ChangeNotifier {
   int? _usuarioId;
   String? _usuarioNombre;
   bool _isLoading = false;
+  Timer? _jornadaMonitorTimer;
+  String? _logoutReason;
 
   double _cardCommissionPercent = 3.5;
   final Map<String, int> _metodoPagoIds = {};
@@ -34,6 +36,7 @@ class OrderProvider extends ChangeNotifier {
   String get waiterName => _usuarioNombre ?? 'Mesero';
   List<Map<String, dynamic>> get menuItems => _menuItems;
   List<String> get menuCategories => _menuCategories;
+  String? get logoutReason => _logoutReason;
 
   List<OrderItem> get pendingToKitchen =>
       _currentTable?.orders.where((i) => !i.isSentToKitchen).toList() ?? [];
@@ -58,21 +61,26 @@ class OrderProvider extends ChangeNotifier {
     }
     _setLoading(true);
     try {
-      final data =
-          await _postApiData(ApiConfig.loginMesero, {'pin': normalizedPin});
+      final data = await _postApiData(ApiConfig.loginMesero, {
+        'pin': normalizedPin,
+      });
       _token = (data['token'] ?? '').toString();
       _usuarioId = (data['usuarioId'] as num?)?.toInt();
       _usuarioNombre = data['nombre']?.toString();
       if (_token == null || _token!.isEmpty || _usuarioId == null) {
         throw Exception('Respuesta de login inválida.');
       }
+      _logoutReason = null;
       await refreshInitialData();
+      _startJornadaMonitor();
     } finally {
       _setLoading(false);
     }
   }
 
-  void logout() {
+  void logout({String? reason}) {
+    _stopJornadaMonitor();
+    _logoutReason = reason;
     _token = null;
     _usuarioId = null;
     _usuarioNombre = null;
@@ -83,6 +91,12 @@ class OrderProvider extends ChangeNotifier {
     _metodoPagoIds.clear();
     _tipoCobroIds.clear();
     _estadoItemEnviadoId = null;
+    notifyListeners();
+  }
+
+  void clearLogoutReason() {
+    if (_logoutReason == null) return;
+    _logoutReason = null;
     notifyListeners();
   }
 
@@ -121,7 +135,8 @@ class OrderProvider extends ChangeNotifier {
       final name = p['nombre']?.toString();
       final category = p['categoria'] as Map<String, dynamic>?;
       final categoryId = (category?['id'] as num?)?.toInt();
-      final categoryName = category?['nombre']?.toString() ??
+      final categoryName =
+          category?['nombre']?.toString() ??
           (categoryId != null ? categoryById[categoryId] : null);
       if (id == null ||
           priceNum == null ||
@@ -175,7 +190,8 @@ class OrderProvider extends ChangeNotifier {
       final serverStatus = _mapMesaStatus(
         (mesa['estado'] as Map<String, dynamic>?)?['nombre']?.toString(),
       );
-      final keepLocalState = prev != null &&
+      final keepLocalState =
+          prev != null &&
           (prev.orders.isNotEmpty ||
               prev.guests > 0 ||
               prev.status != TableStatus.libre);
@@ -215,21 +231,29 @@ class OrderProvider extends ChangeNotifier {
 
     _metodoPagoIds
       ..clear()
-      ..addEntries(metodos
-          .where((m) => m['id'] != null && m['nombre'] != null)
-          .map((m) => MapEntry(
+      ..addEntries(
+        metodos
+            .where((m) => m['id'] != null && m['nombre'] != null)
+            .map(
+              (m) => MapEntry(
                 m['nombre'].toString().toUpperCase(),
                 (m['id'] as num).toInt(),
-              )));
+              ),
+            ),
+      );
 
     _tipoCobroIds
       ..clear()
-      ..addEntries(tiposCobro
-          .where((t) => t['id'] != null && t['nombre'] != null)
-          .map((t) => MapEntry(
+      ..addEntries(
+        tiposCobro
+            .where((t) => t['id'] != null && t['nombre'] != null)
+            .map(
+              (t) => MapEntry(
                 t['nombre'].toString().toUpperCase(),
                 (t['id'] as num).toInt(),
-              )));
+              ),
+            ),
+      );
 
     for (final estado in estadosItem) {
       final nombre = estado['nombre']?.toString().toUpperCase();
@@ -285,7 +309,8 @@ class OrderProvider extends ChangeNotifier {
     final tipoCobroId = _tipoCobroIds[tipoCobroNombre];
     if (tipoCobroId == null) {
       throw Exception(
-          'No se encontró el tipo de cobro $tipoCobroNombre en catálogo.');
+        'No se encontró el tipo de cobro $tipoCobroNombre en catálogo.',
+      );
     }
 
     final venta = await _postApiData(ApiConfig.abrirVenta, {
@@ -316,27 +341,32 @@ class OrderProvider extends ChangeNotifier {
     }
 
     for (final payment in payments) {
-      final methodName =
-          payment.method == PaymentMethod.tarjeta ? 'TARJETA' : 'EFECTIVO';
+      final methodName = payment.method == PaymentMethod.tarjeta
+          ? 'TARJETA'
+          : 'EFECTIVO';
       final methodId = _metodoPagoIds[methodName];
       if (methodId == null) {
         throw Exception(
-            'No se encontró método de pago $methodName en catálogo.');
+          'No se encontró método de pago $methodName en catálogo.',
+        );
       }
 
       final commission = payment.method == PaymentMethod.tarjeta
           ? _cardCommissionPercent
           : 0.0;
       final net = _round2(payment.amount * (1 - (commission / 100)));
-      final tipAmount =
-          payment.tipAmount <= 0 ? 0.0 : _round2(payment.tipAmount);
+      final tipAmount = payment.tipAmount <= 0
+          ? 0.0
+          : _round2(payment.tipAmount);
       final effectiveTipMethod = payment.tipMethod ?? payment.method;
-      final tipMethodName =
-          effectiveTipMethod == PaymentMethod.tarjeta ? 'TARJETA' : 'EFECTIVO';
+      final tipMethodName = effectiveTipMethod == PaymentMethod.tarjeta
+          ? 'TARJETA'
+          : 'EFECTIVO';
       final tipMethodId = _metodoPagoIds[tipMethodName];
       if (tipMethodId == null) {
         throw Exception(
-            'No se encontró método de pago $tipMethodName para la propina.');
+          'No se encontró método de pago $tipMethodName para la propina.',
+        );
       }
       final tipCommission = effectiveTipMethod == PaymentMethod.tarjeta
           ? _cardCommissionPercent
@@ -436,6 +466,52 @@ class OrderProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  void _startJornadaMonitor() {
+    _stopJornadaMonitor();
+    if (!isAuthenticated) return;
+    _jornadaMonitorTimer = Timer.periodic(
+      const Duration(seconds: 8),
+      (_) => unawaited(_verificarJornadaActiva()),
+    );
+    unawaited(_verificarJornadaActiva());
+  }
+
+  void _stopJornadaMonitor() {
+    _jornadaMonitorTimer?.cancel();
+    _jornadaMonitorTimer = null;
+  }
+
+  Future<void> _verificarJornadaActiva() async {
+    if (!isAuthenticated) return;
+    final uri = Uri.parse(ApiConfig.jornadaEstado);
+    try {
+      final response = await http.get(uri, headers: _headers());
+      if (response.statusCode == 404) {
+        _forzarLogoutPorJornadaCerrada();
+        return;
+      }
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        return;
+      }
+      final decoded = jsonDecode(response.body);
+      if (decoded is! Map<String, dynamic>) return;
+      if (decoded['success'] == true) return;
+
+      final code = decoded['code'];
+      final message = decoded['message']?.toString().toLowerCase() ?? '';
+      if (code == 4040 || message.contains('no hay una jornada activa')) {
+        _forzarLogoutPorJornadaCerrada();
+      }
+    } catch (_) {
+      return;
+    }
+  }
+
+  void _forzarLogoutPorJornadaCerrada() {
+    if (!isAuthenticated) return;
+    logout(reason: 'jornada_cerrada');
+  }
+
   void _ensureAuthenticated() {
     if (_token == null || _token!.isEmpty) {
       throw Exception('Sesión no iniciada.');
@@ -457,7 +533,9 @@ class OrderProvider extends ChangeNotifier {
   }
 
   Future<Map<String, dynamic>> _postApiData(
-      String endpoint, Object payload) async {
+    String endpoint,
+    Object payload,
+  ) async {
     final uri = Uri.parse(endpoint);
     final response = await http.post(
       uri,
@@ -468,7 +546,9 @@ class OrderProvider extends ChangeNotifier {
   }
 
   Future<Map<String, dynamic>> _putApiData(
-      String endpoint, Object payload) async {
+    String endpoint,
+    Object payload,
+  ) async {
     final uri = Uri.parse(endpoint);
     final response = await http.put(
       uri,
@@ -554,8 +634,8 @@ class OrderProvider extends ChangeNotifier {
       }
     }
 
-    final currentBackendId =
-        (decoded['currentTableBackendId'] as num?)?.toInt();
+    final currentBackendId = (decoded['currentTableBackendId'] as num?)
+        ?.toInt();
     if (currentBackendId != null) {
       _currentTable = _tableByBackendId(currentBackendId);
     }
@@ -610,9 +690,9 @@ class OrderProvider extends ChangeNotifier {
     final ordersRaw = raw['orders'];
     final orders = ordersRaw is List
         ? ordersRaw
-            .whereType<Map<String, dynamic>>()
-            .map(_orderItemFromJson)
-            .toList()
+              .whereType<Map<String, dynamic>>()
+              .map(_orderItemFromJson)
+              .toList()
         : <OrderItem>[];
     return BoardTable(
       id: raw['id']?.toString() ?? '',
@@ -660,4 +740,10 @@ class OrderProvider extends ChangeNotifier {
   }
 
   double _round2(double value) => double.parse(value.toStringAsFixed(2));
+
+  @override
+  void dispose() {
+    _stopJornadaMonitor();
+    super.dispose();
+  }
 }

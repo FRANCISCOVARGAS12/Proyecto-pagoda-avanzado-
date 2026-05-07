@@ -30,6 +30,8 @@ export class Top5Component implements OnInit, OnDestroy {
   endDate = '';
   minDate = '';
   maxDate = '';
+  appliedStartDate = '';
+  appliedEndDate = '';
 
   top5: PlatilloTop[] = [];
   cargando = false;
@@ -46,7 +48,7 @@ export class Top5Component implements OnInit, OnDestroy {
 
   async ngOnInit(): Promise<void> {
     await this.inicializarRangoGlobal();
-    await this.cargarTop5();
+    await this.aplicarFiltros();
     await this.wsService.connect();
     this.suscribirActualizaciones();
   }
@@ -56,7 +58,7 @@ export class Top5Component implements OnInit, OnDestroy {
     this.wsUnsubscribe = null;
   }
 
-  async onPresetChange(): Promise<void> {
+  onPresetChange(): void {
     const today = new Date();
     let start = new Date(today);
     let end = new Date(today);
@@ -70,31 +72,36 @@ export class Top5Component implements OnInit, OnDestroy {
     }
 
     if (this.rangePreset !== 'custom') {
-      this.startDate = this.toISO(start);
-      this.endDate = this.toISO(end);
-      this.realtimeActivo = false;
-      await this.cargarTop5();
+      this.startDate = this.clampDate(this.toISO(start));
+      this.endDate = this.clampDate(this.toISO(end));
     }
   }
 
-  async onDateRangeChange(): Promise<void> {
+  onDateRangeChange(): void {
     if (!this.startDate || !this.endDate) {
       return;
     }
     this.rangePreset = 'custom';
-    this.realtimeActivo = false;
+  }
+
+  async aplicarFiltros(): Promise<void> {
+    if (!this.startDate || !this.endDate) {
+      this.top5 = [];
+      this.error = 'Selecciona un rango de fechas válido.';
+      return;
+    }
+    const { inicio, fin } = this.normalizarRango(this.startDate, this.endDate);
+    this.startDate = inicio;
+    this.endDate = fin;
+    this.appliedStartDate = inicio;
+    this.appliedEndDate = fin;
     await this.cargarTop5();
   }
 
-  async activarTiempoReal(): Promise<void> {
-    if (!this.minDate || !this.maxDate) {
-      await this.inicializarRangoGlobal();
+  onRealtimeToggleChange(): void {
+    if (this.realtimeActivo) {
+      void this.cargarTop5();
     }
-    this.startDate = this.minDate;
-    this.endDate = this.maxDate;
-    this.rangePreset = 'custom';
-    this.realtimeActivo = true;
-    await this.cargarTop5();
   }
 
   private async inicializarRangoGlobal(): Promise<void> {
@@ -110,6 +117,8 @@ export class Top5Component implements OnInit, OnDestroy {
         this.maxDate = fechas[fechas.length - 1];
         this.startDate = this.minDate;
         this.endDate = this.maxDate;
+        this.appliedStartDate = this.startDate;
+        this.appliedEndDate = this.endDate;
         this.realtimeActivo = true;
         return;
       }
@@ -122,21 +131,22 @@ export class Top5Component implements OnInit, OnDestroy {
     this.maxDate = hoy;
     this.startDate = hoy;
     this.endDate = hoy;
+    this.appliedStartDate = this.startDate;
+    this.appliedEndDate = this.endDate;
     this.realtimeActivo = true;
   }
 
   private async cargarTop5(): Promise<void> {
-    if (!this.startDate || !this.endDate) {
+    if (!this.appliedStartDate || !this.appliedEndDate) {
       this.top5 = [];
       return;
     }
 
-    const { inicio, fin } = this.normalizarRango();
     this.cargando = true;
     this.error = '';
     try {
       const data = await this.apiClient.get<PlatilloTop[]>(
-        `/api/reportes/platillos/top5?inicio=${inicio}&fin=${fin}`,
+        `/api/reportes/platillos/top5?inicio=${this.appliedStartDate}&fin=${this.appliedEndDate}`,
       );
       this.top5 = [...(data || [])].sort((a, b) => b.totalGenerado - a.totalGenerado);
     } catch (err) {
@@ -165,15 +175,22 @@ export class Top5Component implements OnInit, OnDestroy {
     return `${y}-${m}-${d}`;
   }
 
-  private normalizarRango(): { inicio: string; fin: string } {
-    if (this.startDate <= this.endDate) {
-      return { inicio: this.startDate, fin: this.endDate };
+  private normalizarRango(inicio: string, fin: string): { inicio: string; fin: string } {
+    if (inicio <= fin) {
+      return { inicio, fin };
     }
-    const inicio = this.endDate;
-    const fin = this.startDate;
-    this.startDate = inicio;
-    this.endDate = fin;
-    return { inicio, fin };
+    return { inicio: fin, fin: inicio };
+  }
+
+  private clampDate(isoDate: string): string {
+    let normalized = isoDate;
+    if (this.minDate && normalized < this.minDate) {
+      normalized = this.minDate;
+    }
+    if (this.maxDate && normalized > this.maxDate) {
+      normalized = this.maxDate;
+    }
+    return normalized;
   }
 
   fmt(n: number): string {

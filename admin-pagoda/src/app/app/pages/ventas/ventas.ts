@@ -72,7 +72,7 @@ interface PagoApi {
   styleUrl: './ventas.css',
 })
 export class Ventas implements OnInit, OnDestroy {
-  protected rangePreset: RangePreset = 'weekly';
+  protected rangePreset: RangePreset = 'custom';
   protected startDate = '';
   protected endDate = '';
   protected minFechaConsulta = '';
@@ -149,8 +149,8 @@ export class Ventas implements OnInit, OnDestroy {
         this.jornadaAbierta = true;
         this.updatePendingState();
 
-        if (this.appliedJornadaId === nueva.id) {
-          void this.loadResumenVentas();
+        if (this.isPedidoInAppliedScope(nueva.id)) {
+          this.scheduleRealtimeRefresh();
         }
       } else if (event.accion === 'CERRADA' && event.jornada) {
         const cerrada: JornadaApi = event.jornada;
@@ -165,9 +165,9 @@ export class Ventas implements OnInit, OnDestroy {
         }
         this.updatePendingState();
 
-        // Si era el alcance aplicado, recargar para reflejar el cambio
-        if (this.appliedJornadaId === cerrada.id) {
-          void this.loadResumenVentas();
+        // Si estaba dentro del alcance aplicado, recargar para reflejar el cambio
+        if (this.isPedidoInAppliedScope(cerrada.id)) {
+          this.scheduleRealtimeRefresh();
         }
       }
     });
@@ -194,12 +194,18 @@ export class Ventas implements OnInit, OnDestroy {
       this.applyPresetDates(this.rangePreset);
     }
     this.applyJornadaFilter();
+    if (this.jornadasFiltradas.length) {
+      this.selectedJornadaId = 'all';
+    }
     this.updatePendingState();
   }
 
   protected onDateRangeChange(): void {
     this.rangePreset = 'custom';
     this.applyJornadaFilter();
+    if (this.jornadasFiltradas.length) {
+      this.selectedJornadaId = 'all';
+    }
     this.updatePendingState();
   }
 
@@ -229,10 +235,10 @@ export class Ventas implements OnInit, OnDestroy {
   protected async clearFilters(): Promise<void> {
     const fechaReferencia = this.resolveDefaultReferenceDate();
     this.rangePreset = 'custom';
-    this.startDate = fechaReferencia;
-    this.endDate = fechaReferencia;
+    this.startDate = this.minFechaConsulta || fechaReferencia;
+    this.endDate = this.maxFechaConsulta || this.startDate;
     this.applyJornadaFilter();
-    this.selectedJornadaId = this.resolveDefaultJornadaSelection();
+    this.selectedJornadaId = this.jornadasFiltradas.length ? 'all' : null;
     await this.applyFilters();
   }
 
@@ -616,7 +622,6 @@ export class Ventas implements OnInit, OnDestroy {
         this.apiClient.get<JornadaApi[]>('/api/operacion/jornadas'),
         this.apiClient.getOrNull<JornadaApi>('/api/operacion/jornadas/estado'),
       ]);
-      const ultimaSeleccion = this.readLastJornadaSelection();
       this.jornadaAbiertaId = jornadaAbierta?.id ?? null;
       this.jornadas = [...jornadas].sort((a, b) => {
         const fechaA = this.isoDateKey(a.fecha);
@@ -628,29 +633,15 @@ export class Ventas implements OnInit, OnDestroy {
       });
       this.updateDateBoundsFromJornadas();
 
-      // Prioridad: 1. Abierta, 2. Última registrada, 3. Hoy
       const referenceDate =
         jornadaAbierta?.fecha ?? (this.jornadas.length ? this.jornadas[0].fecha : this.toIsoDate(new Date()));
-
       const isoRef = this.isoDateKey(referenceDate);
-      this.startDate = isoRef;
-      this.endDate = isoRef;
+      this.startDate = this.minFechaConsulta || isoRef;
+      this.endDate = this.maxFechaConsulta || this.startDate;
       this.rangePreset = 'custom';
 
       this.applyJornadaFilter();
-
-      if (this.jornadaAbiertaId) {
-        this.selectedJornadaId = this.jornadaAbiertaId;
-      } else if (
-        ultimaSeleccion === 'all' ||
-        (typeof ultimaSeleccion === 'number' && this.jornadas.some((jornada) => jornada.id === ultimaSeleccion))
-      ) {
-        this.selectedJornadaId = ultimaSeleccion;
-      } else if (this.jornadas.length > 0) {
-        this.selectedJornadaId = this.jornadas[0].id;
-      } else {
-        this.selectedJornadaId = null;
-      }
+      this.selectedJornadaId = this.jornadasFiltradas.length > 0 ? 'all' : null;
       this.saveLastJornadaSelection(this.selectedJornadaId);
       this.updatePendingState();
     } catch (error) {
@@ -721,18 +712,20 @@ export class Ventas implements OnInit, OnDestroy {
   }
 
   private applyPresetDates(preset: RangePreset, referenceDate?: string): void {
-    const reference = referenceDate ? this.parseIsoDate(referenceDate) : new Date();
-    const end = this.toIsoDate(reference);
-    const startDate = new Date(reference);
+    const resolvedReference = referenceDate ?? this.maxFechaConsulta ?? this.toIsoDate(new Date());
+    const reference = this.parseIsoDate(resolvedReference);
+    let startDate = new Date(reference);
+    let endDate = new Date(reference);
 
     if (preset === 'weekly') {
       startDate.setDate(reference.getDate() - 6);
     } else if (preset === 'monthly') {
-      startDate.setDate(reference.getDate() - 29);
+      startDate = new Date(reference.getFullYear(), reference.getMonth(), 1);
+      endDate = new Date(reference.getFullYear(), reference.getMonth() + 1, 0);
     }
 
-    this.endDate = end;
-    this.startDate = this.toIsoDate(startDate);
+    this.startDate = this.clampDateToAvailableRange(this.toIsoDate(startDate));
+    this.endDate = this.clampDateToAvailableRange(this.toIsoDate(endDate));
   }
 
   private applyJornadaFilter(): void {
@@ -746,13 +739,6 @@ export class Ventas implements OnInit, OnDestroy {
     });
 
     if (!this.jornadasFiltradas.length) {
-      if (
-        this.selectedJornadaId !== null &&
-        this.selectedJornadaId !== 'all' &&
-        this.jornadas.some((jornada) => jornada.id === this.selectedJornadaId)
-      ) {
-        return;
-      }
       this.selectedJornadaId = null;
       return;
     }
@@ -764,7 +750,7 @@ export class Ventas implements OnInit, OnDestroy {
 
     if (
       this.selectedJornadaId !== 'all' &&
-      !this.jornadas.some((jornada) => jornada.id === this.selectedJornadaId)
+      !this.jornadasFiltradas.some((jornada) => jornada.id === this.selectedJornadaId)
     ) {
       this.selectedJornadaId = this.resolveDefaultJornadaSelection();
     }
@@ -785,7 +771,7 @@ export class Ventas implements OnInit, OnDestroy {
     if (this.appliedJornadaId === 'all' || this.appliedJornadaId === null) {
       return jornadasEnRango;
     }
-    const jornada = this.jornadas.find((item) => item.id === this.appliedJornadaId);
+    const jornada = jornadasEnRango.find((item) => item.id === this.appliedJornadaId);
     return jornada ? [jornada] : [];
   }
 
@@ -844,6 +830,20 @@ export class Ventas implements OnInit, OnDestroy {
     } else if (this.endDate && this.endDate > this.maxFechaConsulta) {
       this.endDate = this.maxFechaConsulta;
     }
+  }
+
+  private clampDateToAvailableRange(isoDate: string): string {
+    let normalized = this.isoDateKey(isoDate);
+    if (!normalized) {
+      return normalized;
+    }
+    if (this.minFechaConsulta && normalized < this.minFechaConsulta) {
+      normalized = this.minFechaConsulta;
+    }
+    if (this.maxFechaConsulta && normalized > this.maxFechaConsulta) {
+      normalized = this.maxFechaConsulta;
+    }
+    return normalized;
   }
 
   private toIsoDate(date: Date): string {

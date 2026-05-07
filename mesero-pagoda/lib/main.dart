@@ -16,12 +16,14 @@ void main() {
   ]);
 
   // StatusBar transparente sobre fondo oscuro
-  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
-    statusBarColor: Colors.transparent,
-    statusBarIconBrightness: Brightness.light,
-    systemNavigationBarColor: Color(0xFF1C1C1E),
-    systemNavigationBarIconBrightness: Brightness.light,
-  ));
+  SystemChrome.setSystemUIOverlayStyle(
+    const SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness: Brightness.light,
+      systemNavigationBarColor: Color(0xFF1C1C1E),
+      systemNavigationBarIconBrightness: Brightness.light,
+    ),
+  );
 
   runApp(const LaPagodaApp());
 }
@@ -34,7 +36,7 @@ class LaPagodaApp extends StatelessWidget {
     return ChangeNotifierProvider(
       create: (_) => OrderProvider(),
       child: MaterialApp(
-        title: 'La Pagoda POS',
+        title: 'Pagoda',
         debugShowCheckedModeBanner: false,
         theme: AppTheme.dark,
         home: const LoginScreen(),

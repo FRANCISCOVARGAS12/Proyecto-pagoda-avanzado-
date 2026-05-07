@@ -7,11 +7,15 @@ import com.pagoda.pagoda_api.exception.PagodaException;
 import com.pagoda.pagoda_api.repository.operacion.JornadaRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -31,21 +35,12 @@ public class JornadaService {
     }
 
     public Optional<Jornada> obtenerJornadaAbierta() {
-        Optional<Jornada> abierta = jornadaRepository.findByEstadoIgnoreCase(ESTADO_ABIERTA);
-        if (abierta.isEmpty()) {
-            return Optional.empty();
-        }
+        return normalizarJornadasAbiertas(LocalDate.now());
+    }
 
-        Jornada jornada = abierta.get();
-        LocalDate hoy = LocalDate.now();
-        if (jornada.getFecha() != null && jornada.getFecha().isBefore(hoy)) {
-            Jornada cerrada = cerrarYGuardar(jornada);
-            messagingTemplate.convertAndSend("/topic/jornada",
-                    (Object) Map.of("accion", "CERRADA", "jornada", cerrada));
-            return Optional.empty();
-        }
-
-        return Optional.of(jornada);
+    @Scheduled(cron = "0 * * * * *")
+    public void cerrarJornadasDeDiaAnteriorProgramado() {
+        normalizarJornadasAbiertas(LocalDate.now());
     }
 
     public Jornada obtenerPorId(Integer id) {
@@ -64,8 +59,7 @@ public class JornadaService {
         Jornada saved = jornadaRepository.save(jornada);
 
         // Notificar a los dashboards
-        messagingTemplate.convertAndSend("/topic/jornada",
-                (Object) Map.of("accion", "ABIERTA", "jornada", saved));
+        notifyJornadaEvent("ABIERTA", saved);
 
         return saved;
     }
@@ -78,29 +72,17 @@ public class JornadaService {
         Jornada cerrada = cerrarYGuardar(jornada);
 
         // Notificar que la jornada se ha cerrado
-        messagingTemplate.convertAndSend("/topic/jornada",
-                (Object) Map.of("accion", "CERRADA", "jornada", cerrada));
+        notifyJornadaEvent("CERRADA", cerrada);
 
         return cerrada;
     }
 
     public Jornada asegurarJornadaActiva(Usuario usuarioApertura) {
         LocalDate hoy = LocalDate.now();
-        Optional<Jornada> abierta = obtenerJornadaAbierta();
+        Optional<Jornada> abierta = normalizarJornadasAbiertas(hoy);
 
         if (abierta.isPresent()) {
-            Jornada jornadaAbierta = abierta.get();
-            if (hoy.equals(jornadaAbierta.getFecha())) {
-                return jornadaAbierta;
-            }
-            // Cerrar jornada anterior automáticamente
-            jornadaAbierta.setEstado(ESTADO_CERRADA);
-            jornadaAbierta.setHoraCierre(LocalDateTime.now());
-            Jornada cerrada = jornadaRepository.save(jornadaAbierta);
-
-            // Notificar cierre de la anterior
-            messagingTemplate.convertAndSend("/topic/jornada",
-                    (Object) Map.of("accion", "CERRADA", "jornada", cerrada));
+            return abierta.get();
         }
 
         Jornada nueva = Jornada.builder()
@@ -114,10 +96,45 @@ public class JornadaService {
         Jornada saved = jornadaRepository.save(nueva);
 
         // Notificar apertura de la nueva
-        messagingTemplate.convertAndSend("/topic/jornada",
-                (Object) Map.of("accion", "ABIERTA", "jornada", saved));
+        notifyJornadaEvent("ABIERTA", saved);
 
         return saved;
+    }
+
+    private Optional<Jornada> normalizarJornadasAbiertas(LocalDate fechaReferencia) {
+        List<Jornada> abiertas = new ArrayList<>(
+                Optional.ofNullable(jornadaRepository.findAllByEstadoIgnoreCase(ESTADO_ABIERTA))
+                        .orElseGet(List::of)
+        );
+        if (abiertas.isEmpty()) {
+            jornadaRepository.findByEstadoIgnoreCase(ESTADO_ABIERTA).ifPresent(abiertas::add);
+        }
+        if (abiertas.isEmpty()) {
+            return Optional.empty();
+        }
+
+        abiertas.sort(Comparator
+                .comparing((Jornada jornada) -> jornada.getHoraApertura() != null ? jornada.getHoraApertura() : LocalDateTime.MIN)
+                .reversed()
+                .thenComparing(
+                        jornada -> jornada.getId() != null ? jornada.getId() : 0,
+                        Comparator.reverseOrder()
+                ));
+
+        Jornada jornadaVigente = null;
+        LocalDate fechaMinimaVigente = fechaReferencia.minusDays(1);
+        for (Jornada jornada : abiertas) {
+            boolean esJornadaVigente = jornada.getFecha() == null || !jornada.getFecha().isBefore(fechaMinimaVigente);
+            if (esJornadaVigente && jornadaVigente == null) {
+                jornadaVigente = jornada;
+                continue;
+            }
+
+            Jornada cerrada = cerrarYGuardar(jornada);
+            notifyJornadaEvent("CERRADA", cerrada);
+        }
+
+        return Optional.ofNullable(jornadaVigente);
     }
 
     private Jornada cerrarYGuardar(Jornada jornada) {
@@ -126,5 +143,17 @@ public class JornadaService {
             jornada.setHoraCierre(LocalDateTime.now());
         }
         return jornadaRepository.save(jornada);
+    }
+
+    private void notifyJornadaEvent(String accion, Jornada jornada) {
+        if (messagingTemplate == null) {
+            return;
+        }
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("accion", accion);
+        if (jornada != null) {
+            payload.put("jornada", jornada);
+        }
+        messagingTemplate.convertAndSend("/topic/jornada", (Object) payload);
     }
 }

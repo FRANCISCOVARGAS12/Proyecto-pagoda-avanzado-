@@ -9,6 +9,17 @@ interface PropinasResponse {
   acumulado: number;
 }
 
+interface PropinasCache {
+  inicio: string;
+  fin: string;
+  acumulado: number;
+  manualMode: boolean;
+}
+
+const PROPINAS_CACHE_KEY = 'pagoda-propinas-cache';
+const PROPINAS_BASE_DATE = '2026-04-26';
+const PROPINAS_PERIOD_DAYS = 15;
+
 @Component({
   selector: 'app-propinas',
   imports: [FormsModule],
@@ -18,12 +29,13 @@ interface PropinasResponse {
 export class PropinasComponent implements OnInit, OnDestroy {
   startDate = '';
   endDate = '';
+  minStartDate = PROPINAS_BASE_DATE;
+  maxStartDate = '';
   acumulado = 0;
   cargando = false;
   infoMessage = '';
   private wsUnsubscribe: (() => void) | null = null;
   private manualMode = false;
-  private readonly requestTimeoutMs = 10000;
 
   constructor(
     private apiClient: ApiClientService,
@@ -31,10 +43,15 @@ export class PropinasComponent implements OnInit, OnDestroy {
   ) {}
 
   async ngOnInit(): Promise<void> {
-    const periodoInicial = this.current15DayPeriod();
-    this.startDate = periodoInicial.inicio;
-    this.endDate = periodoInicial.fin;
-    await this.cargarPeriodoActual();
+    this.maxStartDate = this.toISO(new Date());
+    this.hydrateFromCache();
+    if (!this.startDate || !this.endDate) {
+      const periodoInicial = this.current15DayPeriod();
+      this.startDate = periodoInicial.inicio;
+      this.endDate = periodoInicial.fin;
+    }
+    this.ajustarPeriodoSeleccionado();
+    await this.cargarPropinas();
     void this.wsService.connect();
     this.suscribirActualizaciones();
   }
@@ -44,64 +61,9 @@ export class PropinasComponent implements OnInit, OnDestroy {
     this.wsUnsubscribe = null;
   }
 
-  private async cargarPeriodoActual(): Promise<void> {
-    this.cargando = true;
-    this.infoMessage = '';
-    this.manualMode = false;
-    try {
-      const data = await this.withTimeout(
-        this.apiClient.get<PropinasResponse>('/api/reportes/propinas/actual'),
-      );
-      this.startDate = String(data.inicio).slice(0, 10);
-      this.endDate = String(data.fin).slice(0, 10);
-      this.acumulado = Number(data.acumulado ?? 0);
-    } catch (err) {
-      this.infoMessage = 'Error al cargar propinas.';
-      console.error(err);
-      this.acumulado = 0;
-    } finally {
-      this.cargando = false;
-    }
-  }
-
-  private async cargarPropinas(): Promise<void> {
-    this.cargando = true;
-    this.infoMessage = '';
-    try {
-      const { inicio, fin } = this.normalizarRango();
-      const data = await this.withTimeout(
-        this.apiClient.get<PropinasResponse>(`/api/reportes/propinas?inicio=${inicio}&fin=${fin}`)
-      );
-      this.startDate = String(data.inicio).slice(0, 10);
-      this.endDate = String(data.fin).slice(0, 10);
-      this.acumulado = Number(data.acumulado ?? 0);
-    } catch (err) {
-      this.infoMessage = 'Error al cargar propinas.';
-      console.error(err);
-      this.acumulado = 0;
-    } finally {
-      this.cargando = false;
-    }
-  }
-
   private suscribirActualizaciones(): void {
-    this.wsUnsubscribe = this.wsService.subscribe('/topic/propinas', (event: any) => {
+    this.wsUnsubscribe = this.wsService.subscribe('/topic/propinas', (_event: any) => {
       if (this.manualMode) {
-        return;
-      }
-
-      const periodoInicio = typeof event?.periodoInicio === 'string'
-        ? String(event.periodoInicio).slice(0, 10)
-        : '';
-
-      if (periodoInicio) {
-        this.startDate = periodoInicio;
-        this.endDate = this.shiftIsoDate(periodoInicio, 14);
-      }
-
-      const acumulado = Number(event?.acumulado);
-      if (Number.isFinite(acumulado)) {
-        this.acumulado = acumulado;
         return;
       }
 
@@ -109,19 +71,12 @@ export class PropinasComponent implements OnInit, OnDestroy {
     });
   }
 
-  onDateRangeChange(): void {
-    if (!this.startDate || !this.endDate) {
+  onStartDateChange(): void {
+    if (!this.startDate) {
       return;
     }
 
-    const periodoActual = this.current15DayPeriod();
-    if (this.startDate === periodoActual.inicio && this.endDate === periodoActual.fin) {
-      this.manualMode = false;
-      void this.cargarPeriodoActual();
-      return;
-    }
-
-    this.manualMode = true;
+    this.ajustarPeriodoSeleccionado();
     void this.cargarPropinas();
   }
 
@@ -143,46 +98,117 @@ export class PropinasComponent implements OnInit, OnDestroy {
     return `${y}-${m}-${d}`;
   }
 
-  private shiftIsoDate(isoDate: string, days: number): string {
-    const base = new Date(`${isoDate}T00:00:00`);
-    base.setDate(base.getDate() + days);
-    return this.toISO(base);
-  }
-
-  private normalizarRango(): { inicio: string; fin: string } {
-    if (!this.startDate || !this.endDate) {
-      return { inicio: this.startDate, fin: this.endDate };
-    }
-
-    if (this.startDate <= this.endDate) {
-      return { inicio: this.startDate, fin: this.endDate };
-    }
-
-    const inicio = this.endDate;
-    const fin = this.startDate;
-    this.startDate = inicio;
-    this.endDate = fin;
-    return { inicio, fin };
-  }
-
   private current15DayPeriod(): { inicio: string; fin: string } {
-    const hoy = new Date();
-    const inicio = new Date(hoy);
-    const diaMes = hoy.getDate();
-    const offset = (diaMes - 1) % 15;
-    inicio.setDate(hoy.getDate() - offset);
+    return this.periodoParaFecha(this.toISO(new Date()));
+  }
+
+  private persistCache(): void {
+    try {
+      const payload: PropinasCache = {
+        inicio: this.startDate,
+        fin: this.endDate,
+        acumulado: this.acumulado,
+        manualMode: this.manualMode,
+      };
+      localStorage.setItem(PROPINAS_CACHE_KEY, JSON.stringify(payload));
+    } catch {
+      // Ignora errores de storage para no bloquear el flujo.
+    }
+  }
+
+  private hydrateFromCache(): void {
+    try {
+      const raw = localStorage.getItem(PROPINAS_CACHE_KEY);
+      if (!raw) {
+        return;
+      }
+      const parsed = JSON.parse(raw) as Partial<PropinasCache>;
+      if (!this.isIsoDate(parsed.inicio) || !this.isIsoDate(parsed.fin)) {
+        return;
+      }
+
+      this.startDate = parsed.inicio;
+      this.endDate = parsed.fin;
+      const acumulado = Number(parsed.acumulado);
+      if (Number.isFinite(acumulado)) {
+        this.acumulado = acumulado;
+      }
+      this.manualMode = Boolean(parsed.manualMode);
+    } catch {
+      // Ignora caché inválida.
+    }
+  }
+
+  private async cargarPeriodoActual(): Promise<void> {
+    const periodoActual = this.current15DayPeriod();
+    this.startDate = periodoActual.inicio;
+    this.endDate = periodoActual.fin;
+    this.manualMode = false;
+    await this.cargarPropinas();
+  }
+
+  private async cargarPropinas(): Promise<void> {
+    this.cargando = true;
+    this.infoMessage = '';
+    try {
+      const data = await this.apiClient.get<PropinasResponse>(
+        `/api/reportes/propinas?inicio=${this.startDate}&fin=${this.endDate}`,
+      );
+      this.startDate = String(data.inicio).slice(0, 10);
+      this.endDate = String(data.fin).slice(0, 10);
+      this.acumulado = Number(data.acumulado ?? 0);
+      this.persistCache();
+    } catch (err) {
+      this.infoMessage = 'Error al cargar propinas.';
+      console.error(err);
+    } finally {
+      this.cargando = false;
+    }
+  }
+
+  private ajustarPeriodoSeleccionado(): void {
+    const periodo = this.periodoParaFecha(this.startDate || PROPINAS_BASE_DATE);
+    this.startDate = periodo.inicio;
+    this.endDate = periodo.fin;
+    const periodoActual = this.current15DayPeriod();
+    this.manualMode = this.startDate !== periodoActual.inicio || this.endDate !== periodoActual.fin;
+  }
+
+  private periodoParaFecha(isoDate: string): { inicio: string; fin: string } {
+    const fechaBase = this.parseIsoDate(PROPINAS_BASE_DATE);
+    const fechaMaxima = this.parseIsoDate(this.maxStartDate || this.toISO(new Date()));
+    const seleccion = this.parseIsoDate(isoDate);
+
+    let fechaObjetivo = seleccion;
+    if (fechaObjetivo < fechaBase) {
+      fechaObjetivo = fechaBase;
+    }
+    if (fechaObjetivo > fechaMaxima) {
+      fechaObjetivo = fechaMaxima;
+    }
+
+    const diffMs = fechaObjetivo.getTime() - fechaBase.getTime();
+    const diffDays = Math.floor(diffMs / 86400000);
+    const offsetBlocks = Math.floor(diffDays / PROPINAS_PERIOD_DAYS) * PROPINAS_PERIOD_DAYS;
+
+    const inicio = new Date(fechaBase);
+    inicio.setDate(fechaBase.getDate() + offsetBlocks);
     const fin = new Date(inicio);
-    fin.setDate(inicio.getDate() + 14);
+    fin.setDate(inicio.getDate() + (PROPINAS_PERIOD_DAYS - 1));
+
     return { inicio: this.toISO(inicio), fin: this.toISO(fin) };
   }
 
-  private async withTimeout<T>(promise: Promise<T>): Promise<T> {
-    return await Promise.race([
-      promise,
-      new Promise<T>((_, reject) => {
-        setTimeout(() => reject(new Error('Tiempo de espera agotado para propinas.')), this.requestTimeoutMs);
-      }),
-    ]);
+  private parseIsoDate(isoDate: string): Date {
+    const parsed = new Date(`${isoDate}T00:00:00`);
+    if (Number.isNaN(parsed.getTime())) {
+      return new Date();
+    }
+    return parsed;
+  }
+
+  private isIsoDate(value: unknown): value is string {
+    return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value);
   }
 
   fmt(n: number): string {

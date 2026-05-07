@@ -1,7 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 	<uses-permission android:name="android.permission.INTERNET" />
     <application
-        android:label="la_pagoda_pos"
+        android:label="Pagoda"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
@@ -44,4 +44,3 @@
         </intent>
     </queries>
 </manifest>
-

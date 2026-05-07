@@ -22,6 +22,7 @@ class ApiConfig {
   static String get tiposCobro => '$baseUrl/api/catalogos/tipos-cobro';
   static String get estadosItem => '$baseUrl/api/catalogos/estados-item';
   static String get parametrosOperacion => '$baseUrl/api/operacion/parametros';
+  static String get jornadaEstado => '$baseUrl/api/jornadas/estado';
 
   static String get abrirVenta => '$baseUrl/api/ventas/abrir';
   static String get crearVentaItem => '$baseUrl/api/ventas/items';

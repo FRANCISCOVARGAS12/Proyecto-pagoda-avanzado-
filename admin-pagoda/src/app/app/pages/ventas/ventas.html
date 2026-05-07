@@ -34,10 +34,10 @@
       [(ngModel)]="selectedJornadaId"
       (ngModelChange)="onJornadaChange()"
       class="control-input"
-      [disabled]="!jornadas.length"
+      [disabled]="!jornadasFiltradas.length"
     >
       <option [ngValue]="'all'">Todas las jornadas del rango</option>
-      @for (jornada of jornadas; track jornada.id) {
+      @for (jornada of jornadasFiltradas; track jornada.id) {
         <option [ngValue]="jornada.id">{{ jornadaLabel(jornada) }}</option>
       }
     </select>

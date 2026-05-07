@@ -2,11 +2,14 @@
   <h1 class="page-title">Top 5 Platillos Más Vendidos</h1>
 
   <div class="date-filters">
-    <select [(ngModel)]="rangePreset" (ngModelChange)="onPresetChange()" class="control-input">
-      <option value="weekly">Semanal</option>
-      <option value="monthly">Mensual</option>
-      <option value="custom">Personalizado</option>
-    </select>
+    <div class="date-field">
+      <label for="preset">Rango</label>
+      <select id="preset" [(ngModel)]="rangePreset" (ngModelChange)="onPresetChange()" class="control-input">
+        <option value="weekly">Semanal</option>
+        <option value="monthly">Mensual</option>
+        <option value="custom">Personalizado</option>
+      </select>
+    </div>
 
     <div class="date-field">
       <label for="startDate">Fecha de Inicio</label>
@@ -32,9 +35,22 @@
       />
     </div>
 
-    <button type="button" class="btn" (click)="activarTiempoReal()">
-      Tiempo real
-    </button>
+    <div class="actions-group">
+      <button type="button" class="btn btn-consultar" (click)="aplicarFiltros()">
+        Consultar
+      </button>
+
+      <label class="realtime-toggle" for="autoRealtime">
+        <input
+          id="autoRealtime"
+          type="checkbox"
+          [(ngModel)]="realtimeActivo"
+          (change)="onRealtimeToggleChange()"
+        />
+        <span class="switch" aria-hidden="true"></span>
+        <span class="realtime-text">Auto-actualizar</span>
+      </label>
+    </div>
   </div>
 
   @if (error) {
