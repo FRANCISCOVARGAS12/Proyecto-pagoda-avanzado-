@@ -15,7 +15,7 @@
     <input
       type="date"
       [(ngModel)]="startDate"
-      (change)="onDateRangeChange()"
+      (ngModelChange)="onDateRangeChange('start')"
       [attr.min]="minFechaConsulta || null"
       [attr.max]="maxFechaConsulta || null"
       class="control-input"
@@ -24,7 +24,7 @@
     <input
       type="date"
       [(ngModel)]="endDate"
-      (change)="onDateRangeChange()"
+      (ngModelChange)="onDateRangeChange('end')"
       [attr.min]="minFechaConsulta || null"
       [attr.max]="maxFechaConsulta || null"
       class="control-input"
@@ -34,11 +34,16 @@
       [(ngModel)]="selectedJornadaId"
       (ngModelChange)="onJornadaChange()"
       class="control-input"
-      [disabled]="!jornadasFiltradas.length"
+      [disabled]="!jornadas.length && !isRangeModeForJornadaSelect()"
     >
-      <option [ngValue]="'all'">Todas las jornadas del rango</option>
-      @for (jornada of jornadasFiltradas; track jornada.id) {
-        <option [ngValue]="jornada.id">{{ jornadaLabel(jornada) }}</option>
+      @if (isRangeModeForJornadaSelect()) {
+        <option [ngValue]="'all'">Todas las jornadas en el rango de fechas seleccionado</option>
+      } @else {
+        <option [ngValue]="null">Selecciona una jornada</option>
+        <option [ngValue]="'all'">Todas las jornadas</option>
+        @for (jornada of jornadas; track jornada.id) {
+          <option [ngValue]="jornada.id">{{ jornadaLabel(jornada) }}</option>
+        }
       }
     </select>
 
@@ -57,9 +62,6 @@
   </div>
 
   <p class="ventas-scope">Rango: {{ rangeLabel() }} · {{ selectedScopeLabel() }}</p>
-  @if (filtrosPendientes && !isDateRangeInvalid()) {
-    <p class="ventas-info">Tienes cambios en filtros sin aplicar.</p>
-  }
   @if (isDateRangeInvalid()) {
     <p class="ventas-info error">La fecha fin no puede ser menor que la fecha inicio.</p>
   }

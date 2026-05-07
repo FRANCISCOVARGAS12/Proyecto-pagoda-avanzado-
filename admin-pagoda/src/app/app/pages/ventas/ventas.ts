@@ -41,6 +41,7 @@ interface VentaApi {
   mesa: { numero: number } | null;
   jornada: { id: number } | null;
   totalCuenta: number;
+  fechaCierre: string | null;
 }
 
 interface JornadaApi {
@@ -99,6 +100,10 @@ export class Ventas implements OnInit, OnDestroy {
   private wsUnsubscribers: Array<() => void> = [];
   private realtimeRefreshTimer: ReturnType<typeof setTimeout> | null = null;
   private resumenRequestSeq = 0;
+  private followActiveJornada = false;
+  private useDateRangeDraft = false;
+  private appliedUseDateRange = false;
+  private hasManualConsulta = false;
   protected jornadaAbierta = false;
 
   constructor(
@@ -115,7 +120,6 @@ export class Ventas implements OnInit, OnDestroy {
     this.syncAppliedFiltersWithDraft();
 
     this.changeDetector.detectChanges();
-    await this.loadResumenVentas();
 
     // Activar actualizaciones en tiempo real
     this.subscribeToWebSocket();
@@ -147,13 +151,22 @@ export class Ventas implements OnInit, OnDestroy {
         this.applyJornadaFilter();
         this.jornadaAbiertaId = nueva.id;
         this.jornadaAbierta = true;
-        this.updatePendingState();
-
-        if (this.isPedidoInAppliedScope(nueva.id)) {
+        const shouldFollowActive = this.followActiveJornada && !this.filtrosPendientes;
+        if (shouldFollowActive) {
+          this.focusOnJornada(nueva);
+          this.syncAppliedFiltersWithDraft();
+          this.saveLastJornadaSelection(this.selectedJornadaId);
           this.scheduleRealtimeRefresh();
+          return;
         }
+        this.updatePendingState();
       } else if (event.accion === 'CERRADA' && event.jornada) {
         const cerrada: JornadaApi = event.jornada;
+        const wasFollowingClosedJornada =
+          this.followActiveJornada &&
+          this.appliedJornadaId !== null &&
+          this.appliedJornadaId !== 'all' &&
+          this.appliedJornadaId === cerrada.id;
         this.jornadas = this.jornadas.map(j =>
           j.id === cerrada.id ? { ...j, estado: 'CERRADA' } : j
         );
@@ -162,25 +175,30 @@ export class Ventas implements OnInit, OnDestroy {
         if (this.jornadaAbiertaId === cerrada.id) {
           this.jornadaAbiertaId = null;
           this.jornadaAbierta = false;
+          this.followActiveJornada = false;
+        } else if (wasFollowingClosedJornada) {
+          this.followActiveJornada = false;
         }
         this.updatePendingState();
-
-        // Si estaba dentro del alcance aplicado, recargar para reflejar el cambio
-        if (this.isPedidoInAppliedScope(cerrada.id)) {
-          this.scheduleRealtimeRefresh();
-        }
       }
     });
     this.wsUnsubscribers.push(unsubJornada);
 
     // Escuchar nuevos pedidos/cierre de pedidos
     const unsubPedido = this.wsService.subscribe('/topic/pedido', (event: any) => {
+      if (event?.accion !== 'CERRADO') {
+        return;
+      }
+
       const jornadaIdPedido = this.extractPedidoJornadaId(event);
       if (!jornadaIdPedido) {
         return;
       }
 
       if (!this.isPedidoInAppliedScope(jornadaIdPedido)) {
+        return;
+      }
+      if (!this.shouldRealtimeRefreshForPedido(jornadaIdPedido)) {
         return;
       }
 
@@ -191,30 +209,67 @@ export class Ventas implements OnInit, OnDestroy {
 
   protected onPresetChange(): void {
     if (this.rangePreset !== 'custom') {
-      this.applyPresetDates(this.rangePreset);
+      const anchor = this.endDate || this.startDate || this.resolveDefaultReferenceDate();
+      this.applyPresetDates(this.rangePreset, anchor);
+      this.useDateRangeDraft = true;
+      this.selectedJornadaId = 'all';
+      this.followActiveJornada = false;
+    } else {
+      this.useDateRangeDraft = Boolean(this.startDate && this.endDate);
+      if (this.useDateRangeDraft) {
+        this.selectedJornadaId = 'all';
+      }
     }
     this.applyJornadaFilter();
-    if (this.jornadasFiltradas.length) {
-      this.selectedJornadaId = 'all';
-    }
     this.updatePendingState();
   }
 
-  protected onDateRangeChange(): void {
-    this.rangePreset = 'custom';
-    this.applyJornadaFilter();
-    if (this.jornadasFiltradas.length) {
-      this.selectedJornadaId = 'all';
+  protected onDateRangeChange(source: 'start' | 'end' = 'end'): void {
+    if (this.rangePreset === 'weekly') {
+      const anchor = source === 'start' ? this.startDate : this.endDate;
+      this.applyWeeklyWindowFrom(anchor || this.resolveDefaultReferenceDate(), source);
+    } else if (this.rangePreset === 'monthly') {
+      const anchor = source === 'start' ? this.startDate : this.endDate;
+      this.applyMonthlyWindowFrom(anchor || this.resolveDefaultReferenceDate());
     }
+    this.useDateRangeDraft = Boolean(this.startDate && this.endDate);
+    if (this.useDateRangeDraft) {
+      this.selectedJornadaId = 'all';
+      this.followActiveJornada = false;
+    }
+    this.applyJornadaFilter();
     this.updatePendingState();
   }
 
   protected onJornadaChange(): void {
+    if (this.selectedJornadaId === null) {
+      this.followActiveJornada = false;
+      this.updatePendingState();
+      return;
+    }
+
+    if (this.selectedJornadaId !== 'all') {
+      this.rangePreset = 'custom';
+      this.startDate = '';
+      this.endDate = '';
+      this.useDateRangeDraft = false;
+      this.followActiveJornada = false;
+      this.applyJornadaFilter();
+    }
     this.updatePendingState();
+  }
+
+  protected isRangeModeForJornadaSelect(): boolean {
+    return this.useDateRangeDraft;
   }
 
   protected async applyFilters(): Promise<void> {
     this.infoMessage = '';
+    this.syncDraftSelectionBeforeApply();
+    if (!this.hasValidDraftScopeSelection()) {
+      this.infoMessage = 'Selecciona una jornada o un rango de fechas antes de consultar.';
+      return;
+    }
     if (this.isDateRangeInvalid()) {
       return;
     }
@@ -226,20 +281,28 @@ export class Ventas implements OnInit, OnDestroy {
     const { start, end } = this.normalizedRangeFrom(this.startDate, this.endDate);
     this.appliedStartDate = start;
     this.appliedEndDate = end;
-    this.appliedJornadaId = this.selectedJornadaId;
-    this.saveLastJornadaSelection(this.selectedJornadaId);
+    this.appliedUseDateRange = this.useDateRangeDraft;
+    this.appliedJornadaId = this.appliedUseDateRange ? 'all' : this.selectedJornadaId;
+    this.followActiveJornada = this.shouldFollowActiveJornadaAfterApply();
+    this.hasManualConsulta = true;
+    if (!this.appliedUseDateRange) {
+      this.saveLastJornadaSelection(this.selectedJornadaId);
+    }
     await this.loadResumenVentas();
     this.updatePendingState();
   }
 
   protected async clearFilters(): Promise<void> {
-    const fechaReferencia = this.resolveDefaultReferenceDate();
     this.rangePreset = 'custom';
-    this.startDate = this.minFechaConsulta || fechaReferencia;
-    this.endDate = this.maxFechaConsulta || this.startDate;
+    this.startDate = '';
+    this.endDate = '';
+    this.useDateRangeDraft = false;
     this.applyJornadaFilter();
-    this.selectedJornadaId = this.jornadasFiltradas.length ? 'all' : null;
-    await this.applyFilters();
+    this.selectedJornadaId = null;
+    this.followActiveJornada = false;
+    this.hasManualConsulta = false;
+    this.infoMessage = '';
+    this.updatePendingState();
   }
 
   protected isDateRangeInvalid(): boolean {
@@ -268,7 +331,12 @@ export class Ventas implements OnInit, OnDestroy {
   }
 
   protected isApplyDisabled(): boolean {
-    return this.cargandoResumen || this.isDateRangeInvalid() || this.isDateOutOfAvailableRange();
+    return (
+      this.cargandoResumen ||
+      this.isDateRangeInvalid() ||
+      this.isDateOutOfAvailableRange() ||
+      !this.hasValidDraftScopeSelection()
+    );
   }
 
   protected jornadaLabel(jornada: JornadaApi): string {
@@ -276,11 +344,14 @@ export class Ventas implements OnInit, OnDestroy {
   }
 
   protected selectedScopeLabel(): string {
+    if (this.appliedJornadaId === null && !this.appliedUseDateRange) {
+      return 'Sin jornada seleccionada';
+    }
     const jornadasAplicadas = this.getJornadasByRange(this.appliedStartDate, this.appliedEndDate);
     if (!jornadasAplicadas.length) {
       return 'Sin jornadas en el rango';
     }
-    if (this.appliedJornadaId === 'all' || this.appliedJornadaId === null) {
+    if (this.appliedJornadaId === 'all') {
       return `${jornadasAplicadas.length} jornada(s) del rango`;
     }
     // Buscar en todas las jornadas (no solo filtradas)
@@ -541,7 +612,9 @@ export class Ventas implements OnInit, OnDestroy {
       this.totalVentas = fondoInicial;
       this.ordersData = [];
       this.expandedOrders.clear();
-      this.infoMessage = 'No hay jornadas en el rango seleccionado.';
+      this.infoMessage = this.appliedUseDateRange
+        ? 'No hay jornadas en el rango seleccionado.'
+        : 'No hay jornadas disponibles para la selección actual.';
       this.cargandoResumen = false;
       return;
     }
@@ -550,7 +623,7 @@ export class Ventas implements OnInit, OnDestroy {
       const ventasAgrupadas = await Promise.all(
         jornadasSeleccionadas.map((jornada) => this.apiClient.get<VentaApi[]>(`/api/ventas/jornada/${jornada.id}`)),
       );
-      const ventas = ventasAgrupadas.flat();
+      const ventas = ventasAgrupadas.flat().filter((venta) => Boolean(venta.fechaCierre));
 
       if (!ventas.length) {
         if (requestSeq !== this.resumenRequestSeq) {
@@ -563,7 +636,7 @@ export class Ventas implements OnInit, OnDestroy {
         this.totalVentas = fondoInicial;
         this.ordersData = [];
         this.expandedOrders.clear();
-        this.infoMessage = 'No hay ventas registradas en el rango seleccionado.';
+        this.infoMessage = 'No hay pedidos despachados en el rango seleccionado.';
         return;
       }
 
@@ -612,16 +685,21 @@ export class Ventas implements OnInit, OnDestroy {
           ? error.message
           : 'No se pudo cargar el resumen de ventas.';
     } finally {
-      this.cargandoResumen = false;
+      if (requestSeq === this.resumenRequestSeq) {
+        this.cargandoResumen = false;
+      }
     }
   }
 
   private async loadJornadas(): Promise<void> {
     try {
-      const [jornadas, jornadaAbierta] = await Promise.all([
-        this.apiClient.get<JornadaApi[]>('/api/operacion/jornadas'),
-        this.apiClient.getOrNull<JornadaApi>('/api/operacion/jornadas/estado'),
-      ]);
+      const jornadas = await this.apiClient.get<JornadaApi[]>('/api/operacion/jornadas');
+      let jornadaAbierta: JornadaApi | null = null;
+      try {
+        jornadaAbierta = await this.apiClient.get<JornadaApi>('/api/operacion/jornadas/estado');
+      } catch {
+        jornadaAbierta = null;
+      }
       this.jornadaAbiertaId = jornadaAbierta?.id ?? null;
       this.jornadas = [...jornadas].sort((a, b) => {
         const fechaA = this.isoDateKey(a.fecha);
@@ -632,16 +710,29 @@ export class Ventas implements OnInit, OnDestroy {
         return fechaB.localeCompare(fechaA);
       });
       this.updateDateBoundsFromJornadas();
-
-      const referenceDate =
-        jornadaAbierta?.fecha ?? (this.jornadas.length ? this.jornadas[0].fecha : this.toIsoDate(new Date()));
-      const isoRef = this.isoDateKey(referenceDate);
-      this.startDate = this.minFechaConsulta || isoRef;
-      this.endDate = this.maxFechaConsulta || this.startDate;
       this.rangePreset = 'custom';
+      if (jornadaAbierta?.fecha && this.jornadaAbiertaId !== null) {
+        this.followActiveJornada = true;
+        this.useDateRangeDraft = false;
+        this.focusOnJornada(jornadaAbierta);
+      } else {
+        this.followActiveJornada = false;
+        this.startDate = '';
+        this.endDate = '';
+        this.useDateRangeDraft = false;
+        this.applyJornadaFilter();
 
-      this.applyJornadaFilter();
-      this.selectedJornadaId = this.jornadasFiltradas.length > 0 ? 'all' : null;
+        const lastSelection = this.readLastJornadaSelection();
+        if (
+          lastSelection !== null &&
+          (lastSelection === 'all' || this.jornadas.some((jornada) => jornada.id === lastSelection))
+        ) {
+          this.selectedJornadaId = lastSelection;
+        } else {
+          this.selectedJornadaId = this.jornadas.length > 0 ? 'all' : null;
+        }
+      }
+
       this.saveLastJornadaSelection(this.selectedJornadaId);
       this.updatePendingState();
     } catch (error) {
@@ -728,16 +819,54 @@ export class Ventas implements OnInit, OnDestroy {
     this.endDate = this.clampDateToAvailableRange(this.toIsoDate(endDate));
   }
 
-  private applyJornadaFilter(): void {
-    const { start, end } = this.normalizedRange();
-    this.jornadasFiltradas = this.jornadas.filter((jornada) => {
-      if (!start || !end) {
-        return true;
-      }
-      const jornadaDate = this.isoDateKey(jornada.fecha);
-      return jornadaDate >= start && jornadaDate <= end;
-    });
+  private applyWeeklyWindowFrom(anchorIsoDate: string, source: 'start' | 'end'): void {
+    const anchor = this.clampDateToAvailableRange(anchorIsoDate);
+    if (!anchor) {
+      return;
+    }
 
+    if (source === 'start') {
+      this.startDate = anchor;
+      this.endDate = this.clampDateToAvailableRange(this.shiftIsoDate(anchor, 6));
+      if (this.endDate < this.startDate) {
+        this.startDate = this.shiftIsoDate(this.endDate, -6);
+      }
+      return;
+    }
+
+    this.endDate = anchor;
+    this.startDate = this.clampDateToAvailableRange(this.shiftIsoDate(anchor, -6));
+    if (this.startDate > this.endDate) {
+      this.endDate = this.shiftIsoDate(this.startDate, 6);
+    }
+  }
+
+  private applyMonthlyWindowFrom(anchorIsoDate: string): void {
+    const anchor = this.parseIsoDate(anchorIsoDate);
+    const monthStart = this.toIsoDate(new Date(anchor.getFullYear(), anchor.getMonth(), 1));
+    const monthEnd = this.toIsoDate(new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0));
+    this.startDate = this.clampDateToAvailableRange(monthStart);
+    this.endDate = this.clampDateToAvailableRange(monthEnd);
+    if (this.endDate < this.startDate) {
+      this.endDate = this.startDate;
+    }
+  }
+
+  private applyJornadaFilter(): void {
+    if (this.useDateRangeDraft) {
+      const { start, end } = this.normalizedRange();
+      this.jornadasFiltradas = this.jornadas.filter((jornada) => {
+        if (!start || !end) {
+          return false;
+        }
+        const jornadaDate = this.isoDateKey(jornada.fecha);
+        return jornadaDate >= start && jornadaDate <= end;
+      });
+      this.selectedJornadaId = 'all';
+      return;
+    }
+
+    this.jornadasFiltradas = [...this.jornadas];
     if (!this.jornadasFiltradas.length) {
       this.selectedJornadaId = null;
       return;
@@ -748,10 +877,7 @@ export class Ventas implements OnInit, OnDestroy {
       return;
     }
 
-    if (
-      this.selectedJornadaId !== 'all' &&
-      !this.jornadasFiltradas.some((jornada) => jornada.id === this.selectedJornadaId)
-    ) {
+    if (this.selectedJornadaId !== 'all' && !this.jornadasFiltradas.some((jornada) => jornada.id === this.selectedJornadaId)) {
       this.selectedJornadaId = this.resolveDefaultJornadaSelection();
     }
   }
@@ -767,6 +893,17 @@ export class Ventas implements OnInit, OnDestroy {
   }
 
   private getSelectedJornadasForAppliedFilters(): JornadaApi[] {
+    if (!this.appliedUseDateRange) {
+      if (this.appliedJornadaId === null) {
+        return [];
+      }
+      if (this.appliedJornadaId === 'all') {
+        return this.jornadas;
+      }
+      const jornada = this.jornadas.find((item) => item.id === this.appliedJornadaId);
+      return jornada ? [jornada] : [];
+    }
+
     const jornadasEnRango = this.getJornadasByRange(this.appliedStartDate, this.appliedEndDate);
     if (this.appliedJornadaId === 'all' || this.appliedJornadaId === null) {
       return jornadasEnRango;
@@ -853,6 +990,12 @@ export class Ventas implements OnInit, OnDestroy {
     return `${year}-${month}-${day}`;
   }
 
+  private shiftIsoDate(rawDate: string, days: number): string {
+    const parsed = this.parseIsoDate(rawDate);
+    parsed.setDate(parsed.getDate() + days);
+    return this.toIsoDate(parsed);
+  }
+
   // Devuelve la fecha en formato ISO (yyyy-mm-dd) para comparaciones internas
   private isoDateKey(rawDate: string): string {
     return (rawDate ?? '').toString().slice(0, 10);
@@ -908,7 +1051,8 @@ export class Ventas implements OnInit, OnDestroy {
     const { start, end } = this.normalizedRangeFrom(this.startDate, this.endDate);
     this.appliedStartDate = start;
     this.appliedEndDate = end;
-    this.appliedJornadaId = this.selectedJornadaId;
+    this.appliedUseDateRange = this.useDateRangeDraft;
+    this.appliedJornadaId = this.appliedUseDateRange ? 'all' : this.selectedJornadaId;
     this.updatePendingState();
   }
 
@@ -918,6 +1062,24 @@ export class Ventas implements OnInit, OnDestroy {
       start !== this.appliedStartDate ||
       end !== this.appliedEndDate ||
       this.selectedJornadaId !== this.appliedJornadaId;
+  }
+
+  private hasValidDraftScopeSelection(): boolean {
+    if (this.useDateRangeDraft) {
+      const { start, end } = this.normalizedRangeFrom(this.startDate, this.endDate);
+      return Boolean(start && end);
+    }
+    return this.selectedJornadaId !== null;
+  }
+
+  private syncDraftSelectionBeforeApply(): void {
+    const hasCompleteDateRange = Boolean(this.startDate && this.endDate);
+    this.useDateRangeDraft = hasCompleteDateRange;
+    if (hasCompleteDateRange) {
+      this.selectedJornadaId = 'all';
+      this.followActiveJornada = false;
+      this.applyJornadaFilter();
+    }
   }
 
   private resolveDefaultReferenceDate(): string {
@@ -933,7 +1095,31 @@ export class Ventas implements OnInit, OnDestroy {
     return this.toIsoDate(new Date());
   }
 
+  private focusOnJornada(jornada: JornadaApi): void {
+    const fecha = this.isoDateKey(jornada.fecha);
+    this.rangePreset = 'custom';
+    this.useDateRangeDraft = false;
+    this.startDate = fecha;
+    this.endDate = fecha;
+    this.applyJornadaFilter();
+    this.selectedJornadaId = this.jornadasFiltradas.some((item) => item.id === jornada.id)
+      ? jornada.id
+      : this.resolveDefaultJornadaSelection();
+    this.updatePendingState();
+  }
+
+  private shouldFollowActiveJornadaAfterApply(): boolean {
+    if (this.jornadaAbiertaId === null) {
+      return this.followActiveJornada;
+    }
+    return this.appliedJornadaId !== null && this.appliedJornadaId !== 'all' && this.appliedJornadaId === this.jornadaAbiertaId;
+  }
+
   private scheduleRealtimeRefresh(): void {
+    if (this.filtrosPendientes || !this.followActiveJornada || !this.hasManualConsulta) {
+      return;
+    }
+
     if (this.realtimeRefreshTimer) {
       return;
     }
@@ -957,6 +1143,16 @@ export class Ventas implements OnInit, OnDestroy {
   }
 
   private isPedidoInAppliedScope(jornadaId: number): boolean {
+    if (!this.appliedUseDateRange) {
+      if (this.appliedJornadaId === null) {
+        return false;
+      }
+      if (this.appliedJornadaId === 'all') {
+        return true;
+      }
+      return this.appliedJornadaId === jornadaId;
+    }
+
     if (this.appliedJornadaId !== null && this.appliedJornadaId !== 'all') {
       return this.appliedJornadaId === jornadaId;
     }
@@ -973,5 +1169,15 @@ export class Ventas implements OnInit, OnDestroy {
 
     const fechaJornada = this.isoDateKey(jornada.fecha);
     return fechaJornada >= start && fechaJornada <= end;
+  }
+
+  private shouldRealtimeRefreshForPedido(jornadaId: number): boolean {
+    if (!this.hasManualConsulta || this.filtrosPendientes || !this.followActiveJornada || this.appliedUseDateRange) {
+      return false;
+    }
+    if (this.jornadaAbiertaId === null || this.appliedJornadaId === null || this.appliedJornadaId === 'all') {
+      return false;
+    }
+    return this.appliedJornadaId === this.jornadaAbiertaId && jornadaId === this.jornadaAbiertaId;
   }
 }
