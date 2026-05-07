@@ -594,7 +594,11 @@ export class Ventas implements OnInit, OnDestroy {
     let fondoInicial = this.fondoInicial;
 
     try {
-      const parametros = await this.apiClient.get<ParametrosLocalApi>('/api/operacion/parametros');
+      const parametros = await this.withTimeout(
+        this.apiClient.get<ParametrosLocalApi>('/api/operacion/parametros'),
+        12000,
+        'La consulta tardó demasiado al cargar los parámetros.',
+      );
       fondoInicial = Number(parametros.fondoLunes ?? fondoInicial);
     } catch {
       // Mantiene fallback visual en caso de no haber parametros.
@@ -620,10 +624,27 @@ export class Ventas implements OnInit, OnDestroy {
     }
 
     try {
-      const ventasAgrupadas = await Promise.all(
-        jornadasSeleccionadas.map((jornada) => this.apiClient.get<VentaApi[]>(`/api/ventas/jornada/${jornada.id}`)),
+      const ventasPorJornada = await Promise.allSettled(
+        jornadasSeleccionadas.map((jornada) =>
+          this.withTimeout(
+            this.apiClient.get<VentaApi[]>(`/api/ventas/jornada/${jornada.id}`),
+            20000,
+            `La jornada #${jornada.id} tardó demasiado en responder.`,
+          ),
+        ),
       );
-      const ventas = ventasAgrupadas.flat().filter((venta) => Boolean(venta.fechaCierre));
+      const jornadasConError: number[] = [];
+      const ventas: VentaApi[] = [];
+      ventasPorJornada.forEach((resultado, index) => {
+        if (resultado.status === 'fulfilled') {
+          ventas.push(...resultado.value.filter((venta) => Boolean(venta.fechaCierre)));
+          return;
+        }
+        const jornada = jornadasSeleccionadas[index];
+        if (jornada?.id) {
+          jornadasConError.push(jornada.id);
+        }
+      });
 
       if (!ventas.length) {
         if (requestSeq !== this.resumenRequestSeq) {
@@ -636,22 +657,41 @@ export class Ventas implements OnInit, OnDestroy {
         this.totalVentas = fondoInicial;
         this.ordersData = [];
         this.expandedOrders.clear();
-        this.infoMessage = 'No hay pedidos despachados en el rango seleccionado.';
+        this.infoMessage = jornadasConError.length
+          ? `No se pudieron cargar las jornadas: ${jornadasConError.join(', ')}.`
+          : 'No hay pedidos despachados en el rango seleccionado.';
         return;
       }
 
       const jornadaFechaById = new Map(jornadasSeleccionadas.map((jornada) => [jornada.id, jornada.fecha]));
-      const orders = await Promise.all(
-        ventas.map(async (venta) => {
-          const [items, pagos] = await Promise.all([
-            this.apiClient.get<ItemVentaApi[]>(`/api/ventas/items/venta/${venta.id}`),
-            this.apiClient.get<PagoApi[]>(`/api/ventas/pagos/venta/${venta.id}`),
-          ]);
-          const jornadaFechaRaw = jornadaFechaById.get(venta.jornada?.id ?? -1) ?? 'Sin fecha';
-          const jornadaFecha = jornadaFechaRaw === 'Sin fecha' ? jornadaFechaRaw : this.formatDate(jornadaFechaRaw);
-          return this.mapOrder(venta, items, pagos, jornadaFecha);
-        }),
+      const ordersResult = await Promise.allSettled(
+        ventas.map((venta) =>
+          this.withTimeout(
+            Promise.all([
+              this.apiClient.get<ItemVentaApi[]>(`/api/ventas/items/venta/${venta.id}`),
+              this.apiClient.get<PagoApi[]>(`/api/ventas/pagos/venta/${venta.id}`),
+            ]),
+            20000,
+            `El pedido #${venta.id} tardó demasiado en responder.`,
+          ).then(([items, pagos]) => {
+            const jornadaFechaRaw = jornadaFechaById.get(venta.jornada?.id ?? -1) ?? 'Sin fecha';
+            const jornadaFecha = jornadaFechaRaw === 'Sin fecha' ? jornadaFechaRaw : this.formatDate(jornadaFechaRaw);
+            return this.mapOrder(venta, items, pagos, jornadaFecha);
+          }),
+        ),
       );
+      const pedidosConError: number[] = [];
+      const orders: OrderRow[] = [];
+      ordersResult.forEach((resultado, index) => {
+        if (resultado.status === 'fulfilled') {
+          orders.push(resultado.value);
+          return;
+        }
+        const venta = ventas[index];
+        if (venta?.id) {
+          pedidosConError.push(venta.id);
+        }
+      });
 
       if (requestSeq !== this.resumenRequestSeq) {
         return;
@@ -676,6 +716,16 @@ export class Ventas implements OnInit, OnDestroy {
       this.totalTarjetaBruto = totalTarjetaBruto;
       this.totalTarjetaNeto = totalTarjetaNeto;
       this.totalVentas = fondoInicial + totalEfectivo + totalTarjetaNeto;
+      if (jornadasConError.length || pedidosConError.length) {
+        const errores: string[] = [];
+        if (jornadasConError.length) {
+          errores.push(`jornadas ${jornadasConError.join(', ')}`);
+        }
+        if (pedidosConError.length) {
+          errores.push(`pedidos ${pedidosConError.join(', ')}`);
+        }
+        this.infoMessage = `Se cargó información parcial; no se pudieron consultar ${errores.join(' y ')}.`;
+      }
     } catch (error) {
       if (requestSeq !== this.resumenRequestSeq) {
         return;
@@ -687,8 +737,28 @@ export class Ventas implements OnInit, OnDestroy {
     } finally {
       if (requestSeq === this.resumenRequestSeq) {
         this.cargandoResumen = false;
+        this.infoMessage = this.infoMessage; // fuerza dirty check
+        this.changeDetector.detectChanges(); // ← pinta los cambios inmediatamente
       }
     }
+  }
+
+  private withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const timeoutId = setTimeout(() => {
+        reject(new Error(timeoutMessage));
+      }, timeoutMs);
+
+      promise
+        .then((value) => {
+          clearTimeout(timeoutId);
+          resolve(value);
+        })
+        .catch((error) => {
+          clearTimeout(timeoutId);
+          reject(error);
+        });
+    });
   }
 
   private async loadJornadas(): Promise<void> {
