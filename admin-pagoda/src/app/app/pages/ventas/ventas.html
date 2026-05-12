@@ -30,25 +30,25 @@
       class="control-input"
     />
 
-    <select
-      [(ngModel)]="selectedJornadaId"
-      (ngModelChange)="onJornadaChange()"
-      class="control-input"
-      [disabled]="!jornadas.length && !isRangeModeForJornadaSelect()"
-    >
-      @if (isRangeModeForJornadaSelect()) {
-        <option [ngValue]="'all'">Todas las jornadas en el rango de fechas seleccionado</option>
-      } @else {
-        <option [ngValue]="null">Selecciona una jornada</option>
-        <option [ngValue]="'all'">Todas las jornadas</option>
-        @for (jornada of jornadas; track jornada.id) {
-          <option [ngValue]="jornada.id">{{ jornadaLabel(jornada) }}</option>
-        }
-      }
-    </select>
+    <div class="jornada-select-wrap">
+      <button
+        type="button"
+        class="control-input jornada-picker-btn"
+        (click)="openJornadasHistorial()"
+        [disabled]="!canOpenJornadaPicker()"
+      >
+        <span>{{ jornadaPickerLabel() }}</span>
+        <span aria-hidden="true">▾</span>
+      </button>
+    </div>
 
     <button type="button" class="primary-btn" (click)="applyFilters()" [disabled]="isApplyDisabled()">
-      Consultar
+      @if (cargandoResumen) {
+        <span class="btn-spinner" aria-hidden="true"></span>
+        Consultando...
+      } @else {
+        Consultar
+      }
     </button>
 
     <button type="button" class="secondary-btn" (click)="clearFilters()" [disabled]="cargandoResumen">
@@ -60,6 +60,38 @@
       Exportar PDF
     </button>
   </div>
+
+  @if (historialJornadasVisible && !isRangeModeForJornadaSelect()) {
+    <div class="jornada-modal-backdrop" (click)="closeJornadasHistorial()">
+      <div class="jornada-modal" (click)="$event.stopPropagation()">
+        <div class="jornada-modal-header">
+          <strong>Seleccionar jornada</strong>
+          <button type="button" class="modal-close-btn" (click)="closeJornadasHistorial()">✕</button>
+        </div>
+
+        <input
+          type="search"
+          [(ngModel)]="historialJornadaSearchTerm"
+          class="control-input jornada-modal-search"
+          placeholder="Buscar por #id o fecha"
+        />
+
+        <div class="jornada-modal-list">
+          <button type="button" class="jornada-modal-item" (click)="selectJornadaFromHistorial('all')">
+            Todas las jornadas
+          </button>
+          @for (jornada of jornadasHistorialOpciones(); track jornada.id) {
+            <button type="button" class="jornada-modal-item" (click)="selectJornadaFromHistorial(jornada.id)">
+              {{ jornadaLabel(jornada) }}
+            </button>
+          }
+          @if (!jornadasHistorialOpciones().length) {
+            <p class="jornada-modal-empty">Sin coincidencias.</p>
+          }
+        </div>
+      </div>
+    </div>
+  }
 
   <p class="ventas-scope">Rango: {{ rangeLabel() }} · {{ selectedScopeLabel() }}</p>
   @if (isDateRangeInvalid()) {
@@ -88,7 +120,7 @@
     <article class="summary-card">
       <p>Total Tarjeta Bruto</p>
       <strong>{{ fmt(totalTarjetaBruto) }}</strong>
-      <small>-3.5% comisión</small>
+      <small>-{{ comisionLabel() }}% comisión</small>
     </article>
     <article class="summary-card">
       <p>Total Tarjeta Neto</p>
@@ -133,7 +165,7 @@
 
           @if (order.tipoPago === 'tarjeta') {
             <div class="tree-row payment-row">
-              <div class="payment-name"><span class="dot muted-dot"></span>Tarjeta <small>(−3.5%)</small></div>
+              <div class="payment-name"><span class="dot muted-dot"></span>Tarjeta <small>(−{{ orderComisionLabel(order) }}%)</small></div>
               <div class="right strong">{{ fmt(order.totalBruto) }}</div>
               <div class="right strong">{{ fmt(order.totalNeto) }}</div>
             </div>
@@ -146,7 +178,7 @@
               <div class="right">{{ fmt(order.efectivoAmount!) }}</div>
             </div>
             <div class="tree-row payment-row">
-              <div class="payment-name"><span class="dot muted-dot"></span>Tarjeta <small>(−3.5%)</small></div>
+              <div class="payment-name"><span class="dot muted-dot"></span>Tarjeta <small>(−{{ orderComisionLabel(order) }}%)</small></div>
               <div class="right">{{ fmt(order.tarjetaBruto!) }}</div>
               <div class="right">{{ fmt(order.tarjetaNeto!) }}</div>
             </div>

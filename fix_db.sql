@@ -51,3 +51,13 @@ WHERE id NOT IN (
     ORDER BY nombre, id DESC
   ) sub
 );
+
+-- ==================================================================
+-- Ajuste opcional para jornadas con desfase UTC (+1 día en "fecha")
+-- Úsalo solo si detectas que jornadas de la noche quedaron al día siguiente.
+-- Ejemplo: pruebas del 10/05 quedaron como 11/05.
+-- ==================================================================
+UPDATE operacion.jornadas
+SET fecha = fecha - INTERVAL '1 day'
+WHERE hora_apertura::time < TIME '06:00:00'
+  AND fecha = DATE(hora_apertura);

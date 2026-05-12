@@ -17,7 +17,6 @@
         <tr>
           <th>Nombre</th>
           <th>Rol</th>
-          <th>Estado</th>
           <th class="actions-col">Acciones</th>
         </tr>
       </thead>
@@ -26,15 +25,10 @@
           <tr>
             <td>{{ user.nombre }}</td>
             <td>{{ user.rol }}</td>
-            <td>
-              <span
-                class="badge"
-                [class.inactivo]="user.estado === 'inactivo'"
-              >
-                {{ user.estado }}
-              </span>
-            </td>
             <td class="actions-col">
+              <button type="button" class="action-btn" (click)="openEditDialog(user.id)">
+                ✎ Editar
+              </button>
               <button
                 type="button"
                 class="action-btn danger"
@@ -55,11 +49,11 @@
   <div class="dialog-backdrop" (click)="!isSaving && closeDialog()">
     <div class="dialog-card" (click)="$event.stopPropagation()">
       <div class="dialog-head">
-        <h2>Agregar nuevo usuario</h2>
+        <h2>{{ isEditing() ? 'Editar usuario' : 'Agregar nuevo usuario' }}</h2>
         <button type="button" class="close-btn" [disabled]="isSaving()" (click)="closeDialog()">✕</button>
       </div>
 
-      <form class="dialog-form" (ngSubmit)="addUser()">
+      <form class="dialog-form" (ngSubmit)="submitUser()">
         <label for="nombre">Nombre</label>
         <input id="nombre" type="text" [(ngModel)]="form.nombre" name="nombre" placeholder="Ej: Ana López" [disabled]="isSaving()" />
 
@@ -70,13 +64,13 @@
           }
         </select>
 
-        <label for="pin">PIN (6 dígitos)</label>
-        <input id="pin" type="password" maxlength="6" minlength="6" pattern="[0-9]{6}" [(ngModel)]="form.pin" name="pin" placeholder="Ej: 123456" inputmode="numeric" required [disabled]="isSaving()" />
+        <label for="pin">{{ isEditing() ? 'Nuevo PIN (opcional, 6 dígitos)' : 'PIN (6 dígitos)' }}</label>
+        <input id="pin" type="password" maxlength="6" minlength="6" pattern="[0-9]{6}" [(ngModel)]="form.pin" name="pin" placeholder="Ej: 123456" inputmode="numeric" [required]="!isEditing()" [disabled]="isSaving()" />
 
         <div class="dialog-actions">
           <button type="button" class="secondary-btn" [disabled]="isSaving()" (click)="closeDialog()">Cancelar</button>
           <button type="submit" class="primary-btn" [disabled]="isSaving()">
-            {{ isSaving() ? 'Guardando...' : 'Guardar usuario' }}
+            {{ isSaving() ? 'Guardando...' : (isEditing() ? 'Guardar cambios' : 'Guardar usuario') }}
           </button>
         </div>
       </form>

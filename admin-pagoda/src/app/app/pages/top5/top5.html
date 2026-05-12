@@ -36,20 +36,17 @@
     </div>
 
     <div class="actions-group">
-      <button type="button" class="btn btn-consultar" (click)="aplicarFiltros()">
-        Consultar
+      <button type="button" class="btn btn-consultar" (click)="consultarTop5()" [disabled]="isConsultarDisabled()">
+        @if (cargando) {
+          <span class="btn-spinner" aria-hidden="true"></span>
+          Consultando...
+        } @else {
+          Consultar
+        }
       </button>
-
-      <label class="realtime-toggle" for="autoRealtime">
-        <input
-          id="autoRealtime"
-          type="checkbox"
-          [(ngModel)]="realtimeActivo"
-          (change)="onRealtimeToggleChange()"
-        />
-        <span class="switch" aria-hidden="true"></span>
-        <span class="realtime-text">Auto-actualizar</span>
-      </label>
+      <button type="button" class="btn" (click)="limpiarFiltros()" [disabled]="cargando">
+        Limpiar filtros
+      </button>
     </div>
   </div>
 

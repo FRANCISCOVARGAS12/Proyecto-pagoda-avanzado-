@@ -1,0 +1,7 @@
+docker build --no-cache -t pagoda-api:fix .
+  528  docker tag pagoda-api:fix panchitodevv/pagoda-api:fix-20260502-$(date +%H%M%S)
+  529  docker images panchitodevv/pagoda-api --format "{{.Tag}}"
+  530  docker push panchitodevv/pagoda-api:fix-20260502-212002
+
+ng deploy --base-href=/Proyecto-pagoda-avanzado-/
+

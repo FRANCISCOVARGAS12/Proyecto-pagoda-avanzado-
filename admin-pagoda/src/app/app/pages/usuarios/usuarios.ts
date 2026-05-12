@@ -1,6 +1,7 @@
 import { ChangeDetectorRef, Component, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ApiClientService } from '../../core/api/api-client.service';
+import { AdminSettingsService } from '../../core/ui/admin-settings.service';
 import { ToastService } from '../../core/ui/toast.service';
 
 interface RolApi {
@@ -19,6 +20,7 @@ interface UserRow {
   id: number;
   nombre: string;
   rol: string;
+  rolId: number | null;
   estado: 'activo' | 'inactivo';
   activo: boolean;
 }
@@ -39,6 +41,7 @@ export class Usuarios implements OnInit {
   protected roles: RolApi[] = [];
   protected users: UserRow[] = [];
   protected showDialog = false;
+  protected editingUserId: number | null = null;
   protected isSaving = signal(false);
   protected form: UserForm = {
     nombre: '',
@@ -48,6 +51,7 @@ export class Usuarios implements OnInit {
 
   constructor(
     private readonly apiClient: ApiClientService,
+    private readonly adminSettingsService: AdminSettingsService,
     private readonly toastService: ToastService,
     private readonly cdr: ChangeDetectorRef,
   ) {}
@@ -58,19 +62,47 @@ export class Usuarios implements OnInit {
 
   protected openDialog(): void {
     this.showDialog = true;
+    this.editingUserId = null;
     this.form = {
       nombre: '',
-      rolId: this.roles[0]?.id ?? null,
+      rolId: this.resolveDefaultRoleId(),
+      pin: '',
+    };
+  }
+
+  protected openEditDialog(userId: number): void {
+    const user = this.users.find((item) => item.id === userId);
+    if (!user) {
+      return;
+    }
+    this.showDialog = true;
+    this.editingUserId = user.id;
+    this.form = {
+      nombre: user.nombre,
+      rolId: user.rolId ?? this.resolveDefaultRoleId(),
       pin: '',
     };
   }
 
   protected closeDialog(): void {
     this.showDialog = false;
+    this.editingUserId = null;
     this.isSaving.set(false);
   }
 
-  protected async addUser(): Promise<void> {
+  protected async submitUser(): Promise<void> {
+    if (this.editingUserId === null) {
+      await this.addUser();
+      return;
+    }
+    await this.updateUser();
+  }
+
+  protected isEditing(): boolean {
+    return this.editingUserId !== null;
+  }
+
+  private async addUser(): Promise<void> {
     if (this.isSaving()) {
       return;
     }
@@ -104,6 +136,46 @@ export class Usuarios implements OnInit {
     }
   }
 
+  private async updateUser(): Promise<void> {
+    if (this.isSaving() || this.editingUserId === null) {
+      return;
+    }
+    const nombre = this.form.nombre.trim();
+    const pin = this.form.pin.trim();
+
+    if (!nombre || this.form.rolId === null) {
+      this.toastService.error('Nombre y rol son obligatorios.');
+      return;
+    }
+    if (pin && !/^\d{6}$/.test(pin)) {
+      this.toastService.error('El PIN debe tener 6 digitos.');
+      return;
+    }
+
+    this.isSaving.set(true);
+    try {
+      await this.apiClient.put<
+        UsuarioApi,
+        { nombre: string; rolId: number; pin: string | null; activo: boolean }
+      >(`/api/operacion/usuarios/${this.editingUserId}`, {
+        nombre,
+        rolId: this.form.rolId,
+        pin: pin || null,
+        activo: true,
+      });
+
+      this.toastService.success('Usuario actualizado correctamente.');
+      await this.loadUsers();
+      this.closeDialog();
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message ? error.message : 'No se pudo actualizar el usuario.';
+      this.toastService.error(message);
+    } finally {
+      this.isSaving.set(false);
+    }
+  }
+
   protected async deactivateUser(userId: number): Promise<void> {
     const user = this.users.find((item) => item.id === userId);
 
@@ -113,7 +185,8 @@ export class Usuarios implements OnInit {
 
     try {
       await this.apiClient.delete(`/api/operacion/usuarios/${userId}`);
-      await this.loadUsers();
+      this.users = this.users.filter((item) => item.id !== userId);
+      this.cdr.detectChanges();
       this.toastService.success('Usuario desactivado correctamente.');
     } catch (error) {
       const message =
@@ -132,7 +205,10 @@ export class Usuarios implements OnInit {
       ]);
 
       this.roles = roles;
-      this.users = usuarios.map((usuario) => this.mapUser(usuario));
+      this.users = usuarios
+        .map((usuario) => this.mapUser(usuario))
+        .filter((usuario) => usuario.activo)
+        .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' }));
       this.cdr.detectChanges();
     } catch (error) {
       const message =
@@ -149,6 +225,7 @@ export class Usuarios implements OnInit {
       const usuarios = await this.apiClient.get<UsuarioApi[]>('/api/operacion/usuarios');
       this.users = usuarios
         .map((usuario) => this.mapUser(usuario))
+        .filter((usuario) => usuario.activo)
         .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' }));
       this.cdr.detectChanges();
     } catch (error) {
@@ -169,8 +246,32 @@ export class Usuarios implements OnInit {
       id: usuario.id,
       nombre: nombre || 'Sin nombre',
       rol: rol || 'Sin rol',
+      rolId: this.resolveRoleIdByName(rol),
       estado: activo ? 'activo' : 'inactivo',
       activo,
     };
+  }
+
+  private resolveRoleIdByName(rolNombre: string): number | null {
+    const normalized = (rolNombre ?? '').trim().toUpperCase();
+    if (!normalized) {
+      return null;
+    }
+    const match = this.roles.find((rol) => rol.nombre.toUpperCase() === normalized);
+    return match?.id ?? null;
+  }
+
+  private resolveDefaultRoleId(): number | null {
+    if (!this.roles.length) {
+      return null;
+    }
+
+    const preferredRole = this.adminSettingsService.snapshot().defaultRoleName.toUpperCase();
+    const match = this.roles.find((role) => role.nombre.toUpperCase() === preferredRole);
+    if (match) {
+      return match.id;
+    }
+
+    return this.roles[0]?.id ?? null;
   }
 }

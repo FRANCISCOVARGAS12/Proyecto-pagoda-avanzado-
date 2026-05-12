@@ -671,24 +671,26 @@ class _PaymentSheetState extends State<_PaymentSheet> {
     double total,
     double tip,
     double? cash,
-    double? card,
+    double? _card,
   ) {
+    final baseTotal = (total - tip).clamp(0, total).toDouble();
     final tipMethod = tip > 0 ? _paymentFromKey(_tipGlobalMethod) : null;
     if (_method == 'mixto') {
-      final cashAmount = cash ?? 0;
-      final cardAmount = card ?? 0;
+      final cashInput = (cash ?? 0).clamp(0, baseTotal).toDouble();
+      final cashBase = cashInput;
+      final cardBase = (baseTotal - cashBase).clamp(0, baseTotal).toDouble();
       return [
         PaymentRecord(
           diner: null,
           method: PaymentMethod.efectivo,
-          amount: cashAmount,
+          amount: cashBase + (tipMethod == PaymentMethod.efectivo ? tip : 0),
           tipAmount: tipMethod == PaymentMethod.efectivo ? tip : 0,
           tipMethod: tipMethod == PaymentMethod.efectivo ? tipMethod : null,
         ),
         PaymentRecord(
           diner: null,
           method: PaymentMethod.tarjeta,
-          amount: cardAmount,
+          amount: cardBase + (tipMethod == PaymentMethod.tarjeta ? tip : 0),
           tipAmount: tipMethod == PaymentMethod.tarjeta ? tip : 0,
           tipMethod: tipMethod == PaymentMethod.tarjeta ? tipMethod : null,
         ),
@@ -702,7 +704,7 @@ class _PaymentSheetState extends State<_PaymentSheet> {
       PaymentRecord(
         diner: null,
         method: method,
-        amount: total,
+        amount: baseTotal + (tipMethod == method ? tip : 0),
         tipAmount: tip,
         tipMethod: tipMethod,
       ),
@@ -722,13 +724,17 @@ class _PaymentSheetState extends State<_PaymentSheet> {
           : _paymentFromKey(_dinerTipMethods[diner] ?? 'efectivo');
 
       if (method == 'mixto') {
-        final cash = _parseAmount(_dinerCashCtrls[diner]!);
-        final card = _cardAmount(dinerTotal + dinerTip, cash) ?? 0;
+        final cashInput = _parseAmount(_dinerCashCtrls[diner]!).clamp(
+          0,
+          dinerTotal,
+        );
+        final cashBase = cashInput.toDouble();
+        final cardBase = (dinerTotal - cashBase).clamp(0, dinerTotal).toDouble();
         records.add(
           PaymentRecord(
             diner: diner,
             method: PaymentMethod.efectivo,
-            amount: cash,
+            amount: cashBase + (tipMethod == PaymentMethod.efectivo ? dinerTip : 0),
             tipAmount: tipMethod == PaymentMethod.efectivo ? dinerTip : 0,
             tipMethod: tipMethod == PaymentMethod.efectivo ? tipMethod : null,
           ),
@@ -737,17 +743,18 @@ class _PaymentSheetState extends State<_PaymentSheet> {
           PaymentRecord(
             diner: diner,
             method: PaymentMethod.tarjeta,
-            amount: card,
+            amount: cardBase + (tipMethod == PaymentMethod.tarjeta ? dinerTip : 0),
             tipAmount: tipMethod == PaymentMethod.tarjeta ? dinerTip : 0,
             tipMethod: tipMethod == PaymentMethod.tarjeta ? tipMethod : null,
           ),
         );
       } else {
+        final paymentMethod = _paymentFromKey(method);
         records.add(
           PaymentRecord(
             diner: diner,
-            method: _paymentFromKey(method),
-            amount: dinerTotal + dinerTip,
+            method: paymentMethod,
+            amount: dinerTotal + (tipMethod == paymentMethod ? dinerTip : 0),
             tipAmount: dinerTip,
             tipMethod: tipMethod,
           ),
@@ -764,20 +771,25 @@ class _PaymentSheetState extends State<_PaymentSheet> {
     final records = <PaymentRecord>[];
     for (final diner in List.generate(order.diners, (i) => i + 1)) {
       final dinerTip = _equitativoTipForDiner(order, diner, basePerDiner);
-      final dinerTotal = basePerDiner + dinerTip;
       final method = _eqDinerMethods[diner] ?? 'efectivo';
       final tipMethod = _tipScope == 'global'
           ? _paymentFromKey(_tipGlobalMethod)
           : _paymentFromKey(_eqDinerTipMethods[diner] ?? 'efectivo');
 
       if (method == 'mixto') {
-        final cash = _parseAmount(_eqDinerCashCtrls[diner]!);
-        final card = _cardAmount(dinerTotal, cash) ?? 0;
+        final cashInput = _parseAmount(_eqDinerCashCtrls[diner]!).clamp(
+          0,
+          basePerDiner,
+        );
+        final cashBase = cashInput.toDouble();
+        final cardBase = (basePerDiner - cashBase)
+            .clamp(0, basePerDiner)
+            .toDouble();
         records.add(
           PaymentRecord(
             diner: diner,
             method: PaymentMethod.efectivo,
-            amount: cash,
+            amount: cashBase + (tipMethod == PaymentMethod.efectivo ? dinerTip : 0),
             tipAmount: tipMethod == PaymentMethod.efectivo ? dinerTip : 0,
             tipMethod: tipMethod == PaymentMethod.efectivo ? tipMethod : null,
           ),
@@ -786,17 +798,18 @@ class _PaymentSheetState extends State<_PaymentSheet> {
           PaymentRecord(
             diner: diner,
             method: PaymentMethod.tarjeta,
-            amount: card,
+            amount: cardBase + (tipMethod == PaymentMethod.tarjeta ? dinerTip : 0),
             tipAmount: tipMethod == PaymentMethod.tarjeta ? dinerTip : 0,
             tipMethod: tipMethod == PaymentMethod.tarjeta ? tipMethod : null,
           ),
         );
       } else {
+        final paymentMethod = _paymentFromKey(method);
         records.add(
           PaymentRecord(
             diner: diner,
-            method: _paymentFromKey(method),
-            amount: dinerTotal,
+            method: paymentMethod,
+            amount: basePerDiner + (tipMethod == paymentMethod ? dinerTip : 0),
             tipAmount: dinerTip,
             tipMethod: tipMethod,
           ),
@@ -1250,7 +1263,7 @@ class _PaymentSheetState extends State<_PaymentSheet> {
                 await order.registrarVenta(
                   mode: ChargeMode.total,
                   payments: _buildTotalPayments(total, tip, cash, card),
-                  totalCuenta: total,
+                  totalCuenta: order.grandTotal,
                 );
                 await _generateTicket(
                   order,
@@ -1953,11 +1966,10 @@ class _PaymentSheetState extends State<_PaymentSheet> {
                           : () async {
                               setState(() => _isClosingSale = true);
                               try {
-                                final total = _totalWithTipsForMode(order);
                                 await order.registrarVenta(
                                   mode: ChargeMode.equitativo,
                                   payments: _buildEquitativoPayments(order),
-                                  totalCuenta: total,
+                                  totalCuenta: order.grandTotal,
                                 );
                                 order.clearOrder();
                                 if (ctx.mounted) Navigator.pop(ctx);
@@ -2049,11 +2061,10 @@ class _PaymentSheetState extends State<_PaymentSheet> {
                           : () async {
                               setState(() => _isClosingSale = true);
                               try {
-                                final total = _totalWithTipsForMode(order);
                                 await order.registrarVenta(
                                   mode: ChargeMode.porPersona,
                                   payments: _buildIndividualPayments(order),
-                                  totalCuenta: total,
+                                  totalCuenta: order.grandTotal,
                                 );
                                 order.clearOrder();
                                 if (context.mounted) Navigator.pop(context);

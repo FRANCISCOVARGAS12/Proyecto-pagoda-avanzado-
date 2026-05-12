@@ -37,14 +37,66 @@
   cursor: not-allowed;
 }
 
+.actions-group {
+  display: inline-flex;
+  align-items: end;
+  gap: 0.75rem;
+}
+
+.btn {
+  border: 1px solid var(--border);
+  border-radius: 0.65rem;
+  background: var(--card);
+  color: var(--foreground);
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-weight: 600;
+  padding: 0.55rem 1rem;
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.btn:hover {
+  border-color: color-mix(in srgb, var(--foreground) 16%, var(--border));
+}
+
+.btn-consultar {
+  background: color-mix(in srgb, var(--card) 92%, white 8%);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-spinner {
+  width: 0.9rem;
+  height: 0.9rem;
+  border-radius: 999px;
+  border: 2px solid color-mix(in srgb, var(--foreground) 35%, transparent);
+  border-top-color: var(--foreground);
+  animation: spin 0.8s linear infinite;
+}
+
+.info-message {
+  margin: -0.4rem 0 0.9rem;
+  color: #c92a2a;
+  font-size: 0.88rem;
+}
+
 .tip-wrapper {
   display: flex;
   justify-content: center;
+  flex-wrap: wrap;
+  gap: 1rem;
   padding-block: 2.4rem 3.6rem;
 }
 
 .tip-card {
-  width: min(100%, 920px);
+  width: min(100%, 450px);
   border: 1px solid var(--border);
   border-radius: 1rem;
   background: var(--card);
@@ -68,4 +120,10 @@
   margin-top: 1rem;
   color: var(--muted-foreground);
   font-size: 0.9rem;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }

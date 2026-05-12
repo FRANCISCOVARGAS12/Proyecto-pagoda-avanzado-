@@ -354,7 +354,7 @@ class OrderProvider extends ChangeNotifier {
       final commission = payment.method == PaymentMethod.tarjeta
           ? _cardCommissionPercent
           : 0.0;
-      final net = _round2(payment.amount * (1 - (commission / 100)));
+      final net = _netAfterCommission(payment.amount, commission);
       final tipAmount = payment.tipAmount <= 0
           ? 0.0
           : _round2(payment.tipAmount);
@@ -373,7 +373,7 @@ class OrderProvider extends ChangeNotifier {
           : 0.0;
       final tipNet = tipAmount <= 0
           ? 0.0
-          : _round2(tipAmount * (1 - (tipCommission / 100)));
+          : _netAfterCommission(tipAmount, tipCommission);
 
       await _postApiData(ApiConfig.crearVentaPago, {
         'venta': {'id': ventaId},
@@ -470,7 +470,7 @@ class OrderProvider extends ChangeNotifier {
     _stopJornadaMonitor();
     if (!isAuthenticated) return;
     _jornadaMonitorTimer = Timer.periodic(
-      const Duration(seconds: 8),
+      const Duration(seconds: 3),
       (_) => unawaited(_verificarJornadaActiva()),
     );
     unawaited(_verificarJornadaActiva());
@@ -740,6 +740,13 @@ class OrderProvider extends ChangeNotifier {
   }
 
   double _round2(double value) => double.parse(value.toStringAsFixed(2));
+
+  double _netAfterCommission(double amount, double commissionPercent) {
+    final gross = _round2(amount);
+    final rate = commissionPercent < 0 ? 0 : commissionPercent;
+    final commission = _round2(gross * (rate / 100));
+    return _round2(gross - commission);
+  }
 
   @override
   void dispose() {

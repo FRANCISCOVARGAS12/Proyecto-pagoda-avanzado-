@@ -9,6 +9,7 @@ import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
@@ -34,16 +35,70 @@ public class PagoService {
         if (pago.getMonto() == null || pago.getMonto().compareTo(BigDecimal.ZERO) <= 0) {
             throw new PagodaException(ErrorCode.MONTO_PAGO_INVALIDO);
         }
+
+        BigDecimal monto = normalizeMoney(pago.getMonto());
+        BigDecimal comision = normalizePercentage(pago.getComisionPorcentaje());
+
+        pago.setMonto(monto);
+        pago.setComisionPorcentaje(comision);
+        pago.setMontoNeto(calculateNetAmount(monto, comision));
+
+        BigDecimal propinaMonto = normalizeMoney(pago.getPropinaMonto());
+        pago.setPropinaMonto(propinaMonto);
+        pago.setPropinaNeto(resolveTipNet(pago, propinaMonto, comision));
+
         Pago saved = pagoRepository.save(pago);
         publishPropinasUpdate();
         return saved;
     }
 
+    private BigDecimal normalizeMoney(BigDecimal value) {
+        if (value == null) {
+            return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        }
+        return value.setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private BigDecimal normalizePercentage(BigDecimal value) {
+        if (value == null || value.compareTo(BigDecimal.ZERO) < 0) {
+            return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        }
+        return value.setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private BigDecimal calculateNetAmount(BigDecimal amount, BigDecimal percentage) {
+        BigDecimal commission = amount
+                .multiply(percentage)
+                .divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
+        return amount.subtract(commission).setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private BigDecimal resolveTipNet(Pago pago, BigDecimal tipAmount, BigDecimal commission) {
+        if (tipAmount.compareTo(BigDecimal.ZERO) <= 0) {
+            return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        }
+
+        if (isCardMethod(pago.getPropinaMetodoPago() == null ? null : pago.getPropinaMetodoPago().getNombre())) {
+            if (isCardMethod(pago.getMetodoPago() == null ? null : pago.getMetodoPago().getNombre())) {
+                return calculateNetAmount(tipAmount, commission);
+            }
+            if (pago.getPropinaNeto() != null && pago.getPropinaNeto().compareTo(BigDecimal.ZERO) > 0) {
+                return normalizeMoney(pago.getPropinaNeto());
+            }
+            return tipAmount;
+        }
+
+        return tipAmount;
+    }
+
+    private boolean isCardMethod(String methodName) {
+        return methodName != null && methodName.toLowerCase().contains("tarjeta");
+    }
+
     private void publishPropinasUpdate() {
-        LocalDate hoy = LocalDate.now();
-        int offset = (hoy.getDayOfMonth() - 1) % 15;
-        LocalDate periodoInicio = hoy.minusDays(offset);
-        LocalDate periodoFin = periodoInicio.plusDays(14);
+        ResumenPropinaDiarioService.PropinasPeriodo periodo = resumenPropinaDiarioService.resolveCurrentPeriod();
+        LocalDate periodoInicio = periodo.inicio();
+        LocalDate periodoFin = periodo.fin();
 
         BigDecimal acumulado = resumenPropinaDiarioService.getTotalPropinaEntreFechas(periodoInicio, periodoFin);
         messagingTemplate.convertAndSend("/topic/propinas",

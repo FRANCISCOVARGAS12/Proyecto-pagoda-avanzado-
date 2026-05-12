@@ -1,6 +1,7 @@
 import { Component, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ApiClientService } from '../../core/api/api-client.service';
+import { AdminSettingsService } from '../../core/ui/admin-settings.service';
 import { ToastService } from '../../core/ui/toast.service';
 
 interface ConfigOption {
@@ -175,12 +176,14 @@ export class Configuracion implements OnInit {
 
   constructor(
     private readonly apiClient: ApiClientService,
+    private readonly adminSettingsService: AdminSettingsService,
     private readonly toastService: ToastService,
   ) {}
 
   async ngOnInit(): Promise<void> {
     this.syncThemeOptionFromStorage();
     await this.loadConfig();
+    this.syncUiOptionsFromSettings();
   }
 
   protected get sections(): string[] {
@@ -226,6 +229,7 @@ export class Configuracion implements OnInit {
         payload,
       );
       this.backendParams = saved;
+      this.persistUiSettingsFromOptions();
       this.toastService.success(
         wantsPinUpdate
           ? 'PIN y configuración guardados correctamente.'
@@ -265,7 +269,7 @@ export class Configuracion implements OnInit {
     }
   }
 
-  private setOptionValue(id: string, value: number): void {
+  private setOptionValue(id: string, value: string | number | boolean): void {
     const option = this.options.find((item) => item.id === id);
     if (option) {
       option.value = value;
@@ -282,6 +286,32 @@ export class Configuracion implements OnInit {
     return Number.isFinite(value) ? value : fallback;
   }
 
+  private getTextOption(id: string, fallback: string): string {
+    const option = this.options.find((item) => item.id === id);
+    if (!option) {
+      return fallback;
+    }
+    const value = String(option.value ?? '').trim();
+    return value || fallback;
+  }
+
+  private getBooleanOption(id: string, fallback: boolean): boolean {
+    const option = this.options.find((item) => item.id === id);
+    if (!option) {
+      return fallback;
+    }
+    return typeof option.value === 'boolean' ? option.value : fallback;
+  }
+
+  private getSelectOption(id: string, fallback: string): string {
+    const option = this.options.find((item) => item.id === id);
+    if (!option) {
+      return fallback;
+    }
+    const value = String(option.value ?? '').trim();
+    return value || fallback;
+  }
+
   private syncThemeOptionFromStorage(): void {
     const themeOption = this.options.find((option) => option.id === 'theme-mode');
     if (!themeOption) {
@@ -292,6 +322,37 @@ export class Configuracion implements OnInit {
     const preference = stored === 'light' || stored === 'dark' ? stored : 'auto';
     themeOption.value = preference;
     this.applyThemePreference(preference);
+  }
+
+  private syncUiOptionsFromSettings(): void {
+    const settings = this.adminSettingsService.snapshot();
+    this.setOptionValue('rol-por-defecto', settings.defaultRoleName);
+    this.setOptionValue('auto-logout', settings.autoLogoutMinutes);
+    this.setOptionValue('printer-tickets', settings.printerTickets);
+    this.setOptionValue('imprimir-resumen-cierre', settings.printSummaryOnClose);
+    this.setOptionValue('receipt-header', settings.receiptHeader);
+    this.setOptionValue('receipt-footer', settings.receiptFooter);
+    this.setOptionValue('mostrar-num-mesa', settings.showTableNumber);
+    this.setOptionValue('mostrar-comision-ticket', settings.showTicketCommission);
+    this.setOptionValue('propina-sugerida', settings.suggestedTipPercent);
+  }
+
+  private persistUiSettingsFromOptions(): void {
+    const printerOption = this.getSelectOption('printer-tickets', 'default');
+    const printerTickets: 'default' | 'thermal' | 'none' =
+      printerOption === 'thermal' || printerOption === 'none' ? printerOption : 'default';
+
+    this.adminSettingsService.updateSettings({
+      defaultRoleName: this.getSelectOption('rol-por-defecto', 'MESERO').toUpperCase(),
+      autoLogoutMinutes: this.getNumericOption('auto-logout', 30),
+      printerTickets,
+      printSummaryOnClose: this.getBooleanOption('imprimir-resumen-cierre', true),
+      receiptHeader: this.getTextOption('receipt-header', 'Restaurante La Pagoda'),
+      receiptFooter: this.getTextOption('receipt-footer', 'Gracias por su visita. ¡Vuelva pronto!'),
+      showTableNumber: this.getBooleanOption('mostrar-num-mesa', true),
+      showTicketCommission: this.getBooleanOption('mostrar-comision-ticket', true),
+      suggestedTipPercent: this.getNumericOption('propina-sugerida', 10),
+    });
   }
 
   private normalizeThemePreference(value: ConfigOption['value']): ThemePreference {

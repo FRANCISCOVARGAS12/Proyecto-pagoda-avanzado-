@@ -5,7 +5,24 @@ import { WebSocketService } from '../../core/websocket/websocket.service';
 
 type RangePreset = 'weekly' | 'monthly' | 'custom';
 type JornadaSelection = number | 'all';
+type PaymentMethodKey = 'efectivo' | 'tarjeta';
+type TipDiscountPolicy = 'same-or-null' | 'always';
 const LAST_JORNADA_STORAGE_KEY = 'pagoda-ventas-last-jornada';
+const SALES_FILTERS_STORAGE_KEY = 'pagoda-ventas-filtros-v1';
+
+interface VentasFiltersCache {
+  rangePreset: RangePreset;
+  startDate: string;
+  endDate: string;
+  selectedJornadaId: JornadaSelection | null;
+  useDateRangeDraft: boolean;
+  appliedStartDate: string;
+  appliedEndDate: string;
+  appliedJornadaId: JornadaSelection | null;
+  appliedUseDateRange: boolean;
+  followActiveJornada: boolean;
+  hasManualConsulta: boolean;
+}
 
 interface DishItem {
   nombre: string;
@@ -23,6 +40,7 @@ interface OrderRow {
   efectivoAmount?: number;
   tarjetaBruto?: number;
   tarjetaNeto?: number;
+  tarjetaComisionPorcentaje?: number;
   dishes: DishItem[];
 }
 
@@ -34,6 +52,7 @@ interface ParametrosLocalApi {
   fondoViernes: number;
   fondoSabado: number;
   fondoDomingo: number;
+  comisionBancaria: number;
 }
 
 interface VentaApi {
@@ -62,8 +81,17 @@ interface ItemVentaApi {
 interface PagoApi {
   id: number;
   metodoPago: { nombre: string } | null;
+  propinaMetodoPago?: { nombre: string } | null;
   monto: number;
+  comisionPorcentaje?: number;
   montoNeto: number;
+  propinaMonto?: number;
+  propinaNeto?: number;
+}
+
+interface JornadaDayInfo {
+  index: number;
+  total: number;
 }
 
 @Component({
@@ -81,9 +109,12 @@ export class Ventas implements OnInit, OnDestroy {
   protected jornadas: JornadaApi[] = [];
   protected jornadasFiltradas: JornadaApi[] = [];
   protected selectedJornadaId: JornadaSelection | null = null;
+  protected historialJornadasVisible = false;
+  protected historialJornadaSearchTerm = '';
 
   protected totalVentas = 0;
   protected fondoInicial = 2000;
+  protected comisionTarjeta = 3.5;
   protected totalEfectivo = 0;
   protected totalTarjetaBruto = 0;
   protected totalTarjetaNeto = 0;
@@ -104,6 +135,8 @@ export class Ventas implements OnInit, OnDestroy {
   private useDateRangeDraft = false;
   private appliedUseDateRange = false;
   private hasManualConsulta = false;
+  private readonly jornadaDayInfoById = new Map<number, JornadaDayInfo>();
+  private parametrosLocal: ParametrosLocalApi | null = null;
   protected jornadaAbierta = false;
 
   constructor(
@@ -114,10 +147,21 @@ export class Ventas implements OnInit, OnDestroy {
 
   async ngOnInit(): Promise<void> {
     await this.loadJornadas();
+    await this.applyConfiguredDefaults();
+    this.restorePersistedFiltersState();
 
     // Inicializar el estado según la respuesta del API
     this.jornadaAbierta = this.jornadaAbiertaId !== null;
-    this.syncAppliedFiltersWithDraft();
+    if (!this.hasManualConsulta) {
+      this.syncAppliedFiltersWithDraft();
+    } else {
+      this.updatePendingState();
+    }
+    if (this.hasManualConsulta && this.hasValidAppliedScopeSelection()) {
+      await this.loadResumenVentas();
+    } else {
+      this.updateEmptySummary(this.fondoInicial);
+    }
 
     this.changeDetector.detectChanges();
 
@@ -147,16 +191,14 @@ export class Ventas implements OnInit, OnDestroy {
           // Actualizar estado a ABIERTA
           this.jornadas = this.jornadas.map(j => j.id === nueva.id ? nueva : j);
         }
+        this.rebuildJornadaDayInfo();
         this.updateDateBoundsFromJornadas();
         this.applyJornadaFilter();
         this.jornadaAbiertaId = nueva.id;
         this.jornadaAbierta = true;
-        const shouldFollowActive = this.followActiveJornada && !this.filtrosPendientes;
-        if (shouldFollowActive) {
-          this.focusOnJornada(nueva);
-          this.syncAppliedFiltersWithDraft();
-          this.saveLastJornadaSelection(this.selectedJornadaId);
-          this.scheduleRealtimeRefresh();
+        const shouldAutoFollowOpened = !this.filtrosPendientes && (this.followActiveJornada || this.hasManualConsulta);
+        if (shouldAutoFollowOpened) {
+          void this.autoApplyOpenedJornada(nueva);
           return;
         }
         this.updatePendingState();
@@ -170,6 +212,7 @@ export class Ventas implements OnInit, OnDestroy {
         this.jornadas = this.jornadas.map(j =>
           j.id === cerrada.id ? { ...j, estado: 'CERRADA' } : j
         );
+        this.rebuildJornadaDayInfo();
         this.updateDateBoundsFromJornadas();
         this.applyJornadaFilter();
         if (this.jornadaAbiertaId === cerrada.id) {
@@ -208,6 +251,7 @@ export class Ventas implements OnInit, OnDestroy {
   }
 
   protected onPresetChange(): void {
+    this.closeJornadasHistorial();
     if (this.rangePreset !== 'custom') {
       const anchor = this.endDate || this.startDate || this.resolveDefaultReferenceDate();
       this.applyPresetDates(this.rangePreset, anchor);
@@ -225,6 +269,7 @@ export class Ventas implements OnInit, OnDestroy {
   }
 
   protected onDateRangeChange(source: 'start' | 'end' = 'end'): void {
+    this.closeJornadasHistorial();
     if (this.rangePreset === 'weekly') {
       const anchor = source === 'start' ? this.startDate : this.endDate;
       this.applyWeeklyWindowFrom(anchor || this.resolveDefaultReferenceDate(), source);
@@ -263,6 +308,64 @@ export class Ventas implements OnInit, OnDestroy {
     return this.useDateRangeDraft;
   }
 
+  protected jornadaPickerLabel(): string {
+    if (this.useDateRangeDraft) {
+      return 'Todas las jornadas en el rango seleccionado';
+    }
+
+    if (!this.jornadasFiltradas.length) {
+      return 'Sin jornadas disponibles';
+    }
+
+    if (this.selectedJornadaId === null) {
+      return 'Seleccionar jornada';
+    }
+
+    if (this.selectedJornadaId === 'all') {
+      return 'Todas las jornadas';
+    }
+
+    const jornada = this.jornadas.find((item) => item.id === this.selectedJornadaId);
+    return jornada ? this.jornadaLabel(jornada) : 'Seleccionar jornada';
+  }
+
+  protected canOpenJornadaPicker(): boolean {
+    return !this.useDateRangeDraft && this.jornadasFiltradas.length > 0;
+  }
+
+  protected openJornadasHistorial(): void {
+    if (!this.canOpenJornadaPicker()) {
+      return;
+    }
+    this.historialJornadaSearchTerm = '';
+    this.historialJornadasVisible = true;
+  }
+
+  protected closeJornadasHistorial(): void {
+    this.historialJornadasVisible = false;
+    this.historialJornadaSearchTerm = '';
+  }
+
+  protected jornadasHistorialOpciones(): JornadaApi[] {
+    const candidatas = [...this.jornadasFiltradas];
+    const term = this.historialJornadaSearchTerm.trim().toLowerCase();
+    if (!term) {
+      return candidatas;
+    }
+
+    return candidatas.filter((jornada) => {
+      const label = this.jornadaLabel(jornada).toLowerCase();
+      const fecha = this.formatDate(this.jornadaDateKey(jornada)).toLowerCase();
+      return label.includes(term) || fecha.includes(term) || `${jornada.id}`.includes(term);
+    });
+  }
+
+  protected selectJornadaFromHistorial(selection: JornadaSelection): void {
+    this.selectedJornadaId = selection;
+    this.onJornadaChange();
+    this.closeJornadasHistorial();
+  }
+
   protected async applyFilters(): Promise<void> {
     this.infoMessage = '';
     this.syncDraftSelectionBeforeApply();
@@ -289,6 +392,7 @@ export class Ventas implements OnInit, OnDestroy {
       this.saveLastJornadaSelection(this.selectedJornadaId);
     }
     await this.loadResumenVentas();
+    this.persistFiltersState();
     this.updatePendingState();
   }
 
@@ -297,11 +401,22 @@ export class Ventas implements OnInit, OnDestroy {
     this.startDate = '';
     this.endDate = '';
     this.useDateRangeDraft = false;
+    this.closeJornadasHistorial();
     this.applyJornadaFilter();
     this.selectedJornadaId = null;
     this.followActiveJornada = false;
     this.hasManualConsulta = false;
+    this.appliedStartDate = '';
+    this.appliedEndDate = '';
+    this.appliedJornadaId = null;
+    this.appliedUseDateRange = false;
     this.infoMessage = '';
+    this.ordersData = [];
+    this.expandedOrders.clear();
+    await this.applyConfiguredDefaults();
+    this.updateEmptySummary(this.fondoInicial);
+    this.clearPersistedFiltersState();
+    this.saveLastJornadaSelection(null);
     this.updatePendingState();
   }
 
@@ -340,7 +455,10 @@ export class Ventas implements OnInit, OnDestroy {
   }
 
   protected jornadaLabel(jornada: JornadaApi): string {
-    return `#${jornada.id} · ${this.formatDate(jornada.fecha)} · ${jornada.estado}`;
+    const etiqueta = this.jornadaTurnLabel(jornada);
+    const fecha = this.jornadaDateKey(jornada);
+    const withEtiqueta = etiqueta ? `${this.formatDate(fecha)} · ${etiqueta}` : this.formatDate(fecha);
+    return `#${jornada.id} · ${withEtiqueta} · ${jornada.estado}`;
   }
 
   protected selectedScopeLabel(): string {
@@ -584,36 +702,38 @@ export class Ventas implements OnInit, OnDestroy {
   }
 
   protected fmt(n: number): string {
-    return `$${n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+    const normalized = this.roundCurrency(n);
+    return `$${normalized.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  }
+
+  protected comisionLabel(): string {
+    const normalized = Number(this.comisionTarjeta ?? 0);
+    return normalized.toLocaleString('es-MX', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    });
+  }
+
+  protected orderComisionLabel(order: OrderRow): string {
+    const normalized = Number(order.tarjetaComisionPorcentaje ?? this.comisionTarjeta ?? 0);
+    return normalized.toLocaleString('es-MX', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    });
   }
 
   private async loadResumenVentas(): Promise<void> {
     const requestSeq = ++this.resumenRequestSeq;
     this.cargandoResumen = true;
     this.infoMessage = '';
-    let fondoInicial = this.fondoInicial;
-
-    try {
-      const parametros = await this.withTimeout(
-        this.apiClient.get<ParametrosLocalApi>('/api/operacion/parametros'),
-        12000,
-        'La consulta tardó demasiado al cargar los parámetros.',
-      );
-      fondoInicial = Number(parametros.fondoLunes ?? fondoInicial);
-    } catch {
-      // Mantiene fallback visual en caso de no haber parametros.
-    }
+    const fondoInicial = await this.getConfiguredFondoForCurrentScope();
 
     const jornadasSeleccionadas = this.getSelectedJornadasForAppliedFilters();
     if (!jornadasSeleccionadas.length) {
       if (requestSeq !== this.resumenRequestSeq) {
         return;
       }
-      this.fondoInicial = fondoInicial;
-      this.totalEfectivo = 0;
-      this.totalTarjetaBruto = 0;
-      this.totalTarjetaNeto = 0;
-      this.totalVentas = fondoInicial;
+      this.updateEmptySummary(fondoInicial);
       this.ordersData = [];
       this.expandedOrders.clear();
       this.infoMessage = this.appliedUseDateRange
@@ -650,11 +770,7 @@ export class Ventas implements OnInit, OnDestroy {
         if (requestSeq !== this.resumenRequestSeq) {
           return;
         }
-        this.fondoInicial = fondoInicial;
-        this.totalEfectivo = 0;
-        this.totalTarjetaBruto = 0;
-        this.totalTarjetaNeto = 0;
-        this.totalVentas = fondoInicial;
+        this.updateEmptySummary(fondoInicial);
         this.ordersData = [];
         this.expandedOrders.clear();
         this.infoMessage = jornadasConError.length
@@ -663,7 +779,7 @@ export class Ventas implements OnInit, OnDestroy {
         return;
       }
 
-      const jornadaFechaById = new Map(jornadasSeleccionadas.map((jornada) => [jornada.id, jornada.fecha]));
+      const jornadaById = new Map(jornadasSeleccionadas.map((jornada) => [jornada.id, jornada]));
       const ordersResult = await Promise.allSettled(
         ventas.map((venta) =>
           this.withTimeout(
@@ -674,8 +790,8 @@ export class Ventas implements OnInit, OnDestroy {
             20000,
             `El pedido #${venta.id} tardó demasiado en responder.`,
           ).then(([items, pagos]) => {
-            const jornadaFechaRaw = jornadaFechaById.get(venta.jornada?.id ?? -1) ?? 'Sin fecha';
-            const jornadaFecha = jornadaFechaRaw === 'Sin fecha' ? jornadaFechaRaw : this.formatDate(jornadaFechaRaw);
+            const jornada = jornadaById.get(venta.jornada?.id ?? -1);
+            const jornadaFecha = jornada ? this.jornadaDateLabel(jornada) : 'Sin fecha';
             return this.mapOrder(venta, items, pagos, jornadaFecha);
           }),
         ),
@@ -712,10 +828,11 @@ export class Ventas implements OnInit, OnDestroy {
 
       this.fondoInicial = fondoInicial;
       this.ordersData = orders;
-      this.totalEfectivo = totalEfectivo;
-      this.totalTarjetaBruto = totalTarjetaBruto;
-      this.totalTarjetaNeto = totalTarjetaNeto;
-      this.totalVentas = fondoInicial + totalEfectivo + totalTarjetaNeto;
+      this.totalEfectivo = this.roundCurrency(totalEfectivo);
+      this.totalTarjetaBruto = this.roundCurrency(totalTarjetaBruto);
+      this.totalTarjetaNeto = this.roundCurrency(totalTarjetaNeto);
+      this.updateCommissionFromOrders(orders);
+      this.totalVentas = this.roundCurrency(fondoInicial + this.totalEfectivo + this.totalTarjetaNeto);
       if (jornadasConError.length || pedidosConError.length) {
         const errores: string[] = [];
         if (jornadasConError.length) {
@@ -741,6 +858,82 @@ export class Ventas implements OnInit, OnDestroy {
         this.changeDetector.detectChanges(); // ← pinta los cambios inmediatamente
       }
     }
+  }
+
+  private async applyConfiguredDefaults(): Promise<void> {
+    const configuredFondo = await this.getConfiguredFondoForCurrentScope();
+    this.fondoInicial = configuredFondo;
+  }
+
+  private async getConfiguredFondoForCurrentScope(): Promise<number> {
+    await this.refreshParametrosLocal();
+    if (!this.parametrosLocal) {
+      return this.roundCurrency(this.fondoInicial);
+    }
+
+    const referenceDate = this.resolveFondoReferenceDate();
+    return this.roundCurrency(this.resolveFondoByDate(this.parametrosLocal, referenceDate));
+  }
+
+  private async refreshParametrosLocal(): Promise<void> {
+    try {
+      const parametros = await this.withTimeout(
+        this.apiClient.get<ParametrosLocalApi>('/api/operacion/parametros'),
+        12000,
+        'La consulta tardó demasiado al cargar los parámetros.',
+      );
+      this.parametrosLocal = parametros;
+      const comision = Number(parametros.comisionBancaria ?? this.comisionTarjeta);
+      if (Number.isFinite(comision) && comision >= 0) {
+        this.comisionTarjeta = comision;
+      }
+    } catch {
+      // Mantiene fallback visual en caso de no haber parámetros.
+    }
+  }
+
+  private resolveFondoReferenceDate(): string {
+    if (!this.hasManualConsulta) {
+      return this.toIsoDate(new Date());
+    }
+
+    if (this.appliedUseDateRange) {
+      const { start, end } = this.normalizedRangeFrom(this.appliedStartDate, this.appliedEndDate);
+      return end || start || this.toIsoDate(new Date());
+    }
+
+    if (this.appliedJornadaId !== null && this.appliedJornadaId !== 'all') {
+      const jornada = this.jornadas.find((item) => item.id === this.appliedJornadaId);
+      if (jornada) {
+        return this.jornadaDateKey(jornada);
+      }
+    }
+
+    return this.toIsoDate(new Date());
+  }
+
+  private resolveFondoByDate(parametros: ParametrosLocalApi, isoDate: string): number {
+    const fecha = this.parseIsoDate(isoDate);
+    const fallback = Number(parametros.fondoLunes ?? this.fondoInicial);
+    const fondoPorDia = {
+      0: Number(parametros.fondoDomingo ?? fallback),
+      1: Number(parametros.fondoLunes ?? fallback),
+      2: Number(parametros.fondoMartes ?? fallback),
+      3: Number(parametros.fondoMiercoles ?? fallback),
+      4: Number(parametros.fondoJueves ?? fallback),
+      5: Number(parametros.fondoViernes ?? fallback),
+      6: Number(parametros.fondoSabado ?? fallback),
+    } as const;
+    const resolved = fondoPorDia[fecha.getDay() as keyof typeof fondoPorDia];
+    return Number.isFinite(resolved) ? resolved : fallback;
+  }
+
+  private updateEmptySummary(fondoInicial: number): void {
+    this.fondoInicial = this.roundCurrency(fondoInicial);
+    this.totalEfectivo = 0;
+    this.totalTarjetaBruto = 0;
+    this.totalTarjetaNeto = 0;
+    this.totalVentas = this.roundCurrency(this.fondoInicial);
   }
 
   private withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> {
@@ -772,13 +965,14 @@ export class Ventas implements OnInit, OnDestroy {
       }
       this.jornadaAbiertaId = jornadaAbierta?.id ?? null;
       this.jornadas = [...jornadas].sort((a, b) => {
-        const fechaA = this.isoDateKey(a.fecha);
-        const fechaB = this.isoDateKey(b.fecha);
+        const fechaA = this.jornadaDateKey(a);
+        const fechaB = this.jornadaDateKey(b);
         if (fechaA === fechaB) {
           return b.id - a.id;
         }
         return fechaB.localeCompare(fechaA);
       });
+      this.rebuildJornadaDayInfo();
       this.updateDateBoundsFromJornadas();
       this.rangePreset = 'custom';
       if (jornadaAbierta?.fecha && this.jornadaAbiertaId !== null) {
@@ -808,6 +1002,7 @@ export class Ventas implements OnInit, OnDestroy {
     } catch (error) {
       this.jornadaAbiertaId = null;
       this.jornadas = [];
+      this.jornadaDayInfoById.clear();
       this.jornadasFiltradas = [];
       this.selectedJornadaId = null;
       this.infoMessage =
@@ -834,26 +1029,56 @@ export class Ventas implements OnInit, OnDestroy {
       };
     });
 
-    const pagosTarjeta = pagos.filter((pago) =>
-      (pago.metodoPago?.nombre || '').toLowerCase().includes('tarjeta'),
+    const brutoByMethodDefault = this.calculateBaseTotalsByMethod(
+      pagos,
+      (pago) => Number(pago.monto ?? 0),
+      (pago) => Number(pago.propinaMonto ?? 0),
+      'same-or-null',
     );
-    const pagosEfectivo = pagos.filter((pago) =>
-      (pago.metodoPago?.nombre || '').toLowerCase().includes('efectivo'),
+    const brutoByMethodAlways = this.calculateBaseTotalsByMethod(
+      pagos,
+      (pago) => Number(pago.monto ?? 0),
+      (pago) => Number(pago.propinaMonto ?? 0),
+      'always',
+    );
+    const targetBruto = this.roundCurrency(Number(venta.totalCuenta ?? 0));
+    const selectedPolicy = this.shouldUseAlwaysTipDiscount(
+      brutoByMethodDefault,
+      brutoByMethodAlways,
+      targetBruto,
+    )
+      ? 'always'
+      : 'same-or-null';
+    const brutoByMethod = selectedPolicy === 'always' ? brutoByMethodAlways : brutoByMethodDefault;
+
+    const netoByMethod = this.calculateBaseTotalsByMethod(
+      pagos,
+      (pago) => Number(pago.montoNeto ?? 0),
+      (pago) => Number(pago.propinaNeto ?? pago.propinaMonto ?? 0),
+      selectedPolicy,
     );
 
-    const tarjetaBruto = pagosTarjeta.reduce((acc, pago) => acc + Number(pago.monto ?? 0), 0);
-    const tarjetaNeto = pagosTarjeta.reduce((acc, pago) => acc + Number(pago.montoNeto ?? 0), 0);
-    const efectivoAmount = pagosEfectivo.reduce((acc, pago) => acc + Number(pago.monto ?? 0), 0);
+    const tarjetaBruto = brutoByMethod.tarjeta;
+    const tarjetaNeto = netoByMethod.tarjeta;
+    const efectivoAmount = brutoByMethod.efectivo;
+    const pagosTarjeta = pagos.filter(
+      (pago) => this.resolvePaymentMethod(pago.metodoPago?.nombre) === 'tarjeta',
+    );
+    const tarjetaComisionPorcentaje = this.resolveOrderCardCommission(pagosTarjeta);
 
-    const totalBruto = tarjetaBruto + efectivoAmount;
-    const brutoFallback = totalBruto > 0 ? totalBruto : Number(venta.totalCuenta ?? 0);
-    const netoFallback = tarjetaNeto + efectivoAmount;
+    const tarjetaBrutoRedondeado = this.roundCurrency(tarjetaBruto);
+    const tarjetaNetoRedondeado = this.roundCurrency(tarjetaNeto);
+    const efectivoRedondeado = this.roundCurrency(efectivoAmount);
+
+    const totalBruto = this.roundCurrency(tarjetaBrutoRedondeado + efectivoRedondeado);
+    const brutoFallback = totalBruto > 0 ? totalBruto : this.roundCurrency(Number(venta.totalCuenta ?? 0));
+    const netoFallback = this.roundCurrency(tarjetaNetoRedondeado + efectivoRedondeado);
     const totalNeto = netoFallback > 0 ? netoFallback : brutoFallback;
 
     let tipoPago: OrderRow['tipoPago'] = 'efectivo';
-    if (tarjetaBruto > 0 && efectivoAmount > 0) {
+    if (tarjetaBrutoRedondeado > 0 && efectivoRedondeado > 0) {
       tipoPago = 'mixto';
-    } else if (tarjetaBruto > 0) {
+    } else if (tarjetaBrutoRedondeado > 0) {
       tipoPago = 'tarjeta';
     }
 
@@ -865,11 +1090,127 @@ export class Ventas implements OnInit, OnDestroy {
       totalBruto: brutoFallback,
       totalNeto,
       tipoPago,
-      efectivoAmount: tipoPago !== 'tarjeta' ? efectivoAmount || brutoFallback : undefined,
-      tarjetaBruto: tipoPago !== 'efectivo' ? tarjetaBruto || brutoFallback : undefined,
-      tarjetaNeto: tipoPago !== 'efectivo' ? tarjetaNeto || totalNeto : undefined,
+      efectivoAmount: tipoPago !== 'tarjeta' ? (tipoPago === 'efectivo' ? brutoFallback : efectivoRedondeado) : undefined,
+      tarjetaBruto: tipoPago !== 'efectivo' ? (tipoPago === 'tarjeta' ? brutoFallback : tarjetaBrutoRedondeado) : undefined,
+      tarjetaNeto: tipoPago !== 'efectivo' ? (tipoPago === 'tarjeta' ? totalNeto : tarjetaNetoRedondeado) : undefined,
+      tarjetaComisionPorcentaje,
       dishes,
     };
+  }
+
+  private isTarjetaMethod(methodName: string | undefined | null): boolean {
+    return (methodName ?? '').toLowerCase().includes('tarjeta');
+  }
+
+  private isEfectivoMethod(methodName: string | undefined | null): boolean {
+    return (methodName ?? '').toLowerCase().includes('efectivo');
+  }
+
+  private calculateBaseTotalsByMethod(
+    pagos: PagoApi[],
+    amountSelector: (pago: PagoApi) => number,
+    tipSelector: (pago: PagoApi) => number,
+    tipDiscountPolicy: TipDiscountPolicy,
+  ): Record<PaymentMethodKey, number> {
+    const totals: Record<PaymentMethodKey, number> = { efectivo: 0, tarjeta: 0 };
+    for (const pago of pagos) {
+      const paymentMethod = this.resolvePaymentMethod(pago.metodoPago?.nombre);
+      if (!paymentMethod) {
+        continue;
+      }
+
+      const amount = this.roundCurrency(amountSelector(pago));
+      const tip = this.roundCurrency(tipSelector(pago));
+      const tipMethod = this.resolvePaymentMethod(pago.propinaMetodoPago?.nombre);
+      const shouldSubtractTip =
+        tip > 0 &&
+        amount + 0.0001 >= tip &&
+        (tipDiscountPolicy === 'always' || tipMethod === paymentMethod || tipMethod === null);
+      const baseAmount = shouldSubtractTip ? this.roundCurrency(Math.max(0, amount - tip)) : amount;
+      totals[paymentMethod] = this.roundCurrency(totals[paymentMethod] + baseAmount);
+    }
+
+    return totals;
+  }
+
+  private shouldUseAlwaysTipDiscount(
+    defaultTotals: Record<PaymentMethodKey, number>,
+    alwaysTotals: Record<PaymentMethodKey, number>,
+    targetBruto: number,
+  ): boolean {
+    if (!(targetBruto > 0)) {
+      return true;
+    }
+    const defaultDiff = Math.abs(this.sumTotals(defaultTotals) - targetBruto);
+    const alwaysDiff = Math.abs(this.sumTotals(alwaysTotals) - targetBruto);
+    return alwaysDiff + 0.01 < defaultDiff;
+  }
+
+  private sumTotals(totals: Record<PaymentMethodKey, number>): number {
+    return this.roundCurrency(Number(totals.efectivo ?? 0) + Number(totals.tarjeta ?? 0));
+  }
+
+  private resolvePaymentMethod(methodName: string | undefined | null): PaymentMethodKey | null {
+    if (this.isTarjetaMethod(methodName)) {
+      return 'tarjeta';
+    }
+    if (this.isEfectivoMethod(methodName)) {
+      return 'efectivo';
+    }
+    return null;
+  }
+
+  private roundCurrency(value: number): number {
+    if (!Number.isFinite(value)) {
+      return 0;
+    }
+    return Math.round((value + Number.EPSILON) * 100) / 100;
+  }
+
+  private resolveOrderCardCommission(pagosTarjeta: PagoApi[]): number | undefined {
+    if (!pagosTarjeta.length) {
+      return undefined;
+    }
+
+    let weightedRateSum = 0;
+    let weightSum = 0;
+    for (const pago of pagosTarjeta) {
+      const rate = this.roundCurrency(Number(pago.comisionPorcentaje ?? 0));
+      const weight = this.roundCurrency(Number(pago.monto ?? 0));
+      if (rate < 0 || weight <= 0) {
+        continue;
+      }
+      weightedRateSum += rate * weight;
+      weightSum += weight;
+    }
+
+    if (weightSum <= 0) {
+      return undefined;
+    }
+    return this.roundCurrency(weightedRateSum / weightSum);
+  }
+
+  private updateCommissionFromOrders(orders: OrderRow[]): void {
+    const withCard = orders.filter((order) => Number(order.tarjetaBruto ?? 0) > 0);
+    if (!withCard.length) {
+      return;
+    }
+
+    let weightedRateSum = 0;
+    let weightSum = 0;
+    for (const order of withCard) {
+      const rate = Number(order.tarjetaComisionPorcentaje ?? NaN);
+      const weight = this.roundCurrency(Number(order.tarjetaBruto ?? 0));
+      if (!Number.isFinite(rate) || rate < 0 || weight <= 0) {
+        continue;
+      }
+      weightedRateSum += rate * weight;
+      weightSum += weight;
+    }
+
+    if (weightSum > 0) {
+      this.comisionTarjeta = this.roundCurrency(weightedRateSum / weightSum);
+    }
   }
 
   private applyPresetDates(preset: RangePreset, referenceDate?: string): void {
@@ -929,7 +1270,7 @@ export class Ventas implements OnInit, OnDestroy {
         if (!start || !end) {
           return false;
         }
-        const jornadaDate = this.isoDateKey(jornada.fecha);
+        const jornadaDate = this.jornadaDateKey(jornada);
         return jornadaDate >= start && jornadaDate <= end;
       });
       this.selectedJornadaId = 'all';
@@ -1001,7 +1342,7 @@ export class Ventas implements OnInit, OnDestroy {
       if (!start || !end) {
         return true;
       }
-      const jornadaDate = this.isoDateKey(jornada.fecha);
+      const jornadaDate = this.jornadaDateKey(jornada);
       return jornadaDate >= start && jornadaDate <= end;
     });
   }
@@ -1014,7 +1355,7 @@ export class Ventas implements OnInit, OnDestroy {
     }
 
     const fechas = this.jornadas
-      .map((jornada) => this.isoDateKey(jornada.fecha))
+      .map((jornada) => this.jornadaDateKey(jornada))
       .filter((fecha) => /^\d{4}-\d{2}-\d{2}$/.test(fecha));
 
     if (!fechas.length) {
@@ -1117,6 +1458,131 @@ export class Ventas implements OnInit, OnDestroy {
     }
   }
 
+  private restorePersistedFiltersState(): void {
+    const cache = this.readPersistedFiltersState();
+    if (!cache) {
+      return;
+    }
+
+    this.rangePreset = cache.rangePreset;
+    const normalizedDraftRange = this.normalizedRangeFrom(
+      this.clampDateToAvailableRange(this.isoDateKey(cache.startDate)),
+      this.clampDateToAvailableRange(this.isoDateKey(cache.endDate)),
+    );
+    this.startDate = normalizedDraftRange.start;
+    this.endDate = normalizedDraftRange.end;
+    this.useDateRangeDraft = Boolean(cache.useDateRangeDraft && this.startDate && this.endDate);
+    this.selectedJornadaId = this.normalizeCachedJornadaSelection(cache.selectedJornadaId, this.useDateRangeDraft);
+
+    const normalizedAppliedRange = this.normalizedRangeFrom(
+      this.clampDateToAvailableRange(this.isoDateKey(cache.appliedStartDate)),
+      this.clampDateToAvailableRange(this.isoDateKey(cache.appliedEndDate)),
+    );
+    this.appliedStartDate = normalizedAppliedRange.start;
+    this.appliedEndDate = normalizedAppliedRange.end;
+    this.appliedUseDateRange = Boolean(cache.appliedUseDateRange && this.appliedStartDate && this.appliedEndDate);
+    this.appliedJornadaId = this.normalizeCachedJornadaSelection(cache.appliedJornadaId, this.appliedUseDateRange);
+
+    this.hasManualConsulta = Boolean(cache.hasManualConsulta);
+    this.followActiveJornada =
+      Boolean(cache.followActiveJornada) &&
+      this.jornadaAbiertaId !== null &&
+      !this.appliedUseDateRange &&
+      this.appliedJornadaId === this.jornadaAbiertaId;
+
+    this.applyJornadaFilter();
+    this.saveLastJornadaSelection(this.selectedJornadaId);
+    this.updatePendingState();
+  }
+
+  private readPersistedFiltersState(): VentasFiltersCache | null {
+    try {
+      const raw = localStorage.getItem(SALES_FILTERS_STORAGE_KEY);
+      if (!raw) {
+        return null;
+      }
+      const parsed = JSON.parse(raw) as Partial<VentasFiltersCache>;
+      const rangePreset: RangePreset =
+        parsed.rangePreset === 'weekly' || parsed.rangePreset === 'monthly' || parsed.rangePreset === 'custom'
+          ? parsed.rangePreset
+          : 'custom';
+      return {
+        rangePreset,
+        startDate: this.isoDateKey(String(parsed.startDate ?? '')),
+        endDate: this.isoDateKey(String(parsed.endDate ?? '')),
+        selectedJornadaId:
+          parsed.selectedJornadaId === 'all'
+            ? 'all'
+            : Number.isInteger(Number(parsed.selectedJornadaId)) && Number(parsed.selectedJornadaId) > 0
+              ? Number(parsed.selectedJornadaId)
+              : null,
+        useDateRangeDraft: Boolean(parsed.useDateRangeDraft),
+        appliedStartDate: this.isoDateKey(String(parsed.appliedStartDate ?? '')),
+        appliedEndDate: this.isoDateKey(String(parsed.appliedEndDate ?? '')),
+        appliedJornadaId:
+          parsed.appliedJornadaId === 'all'
+            ? 'all'
+            : Number.isInteger(Number(parsed.appliedJornadaId)) && Number(parsed.appliedJornadaId) > 0
+              ? Number(parsed.appliedJornadaId)
+              : null,
+        appliedUseDateRange: Boolean(parsed.appliedUseDateRange),
+        followActiveJornada: Boolean(parsed.followActiveJornada),
+        hasManualConsulta: Boolean(parsed.hasManualConsulta),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private persistFiltersState(): void {
+    try {
+      const payload: VentasFiltersCache = {
+        rangePreset: this.rangePreset,
+        startDate: this.startDate,
+        endDate: this.endDate,
+        selectedJornadaId: this.selectedJornadaId,
+        useDateRangeDraft: this.useDateRangeDraft,
+        appliedStartDate: this.appliedStartDate,
+        appliedEndDate: this.appliedEndDate,
+        appliedJornadaId: this.appliedJornadaId,
+        appliedUseDateRange: this.appliedUseDateRange,
+        followActiveJornada: this.followActiveJornada,
+        hasManualConsulta: this.hasManualConsulta,
+      };
+      localStorage.setItem(SALES_FILTERS_STORAGE_KEY, JSON.stringify(payload));
+    } catch {
+      // Ignora errores de storage para no bloquear la vista.
+    }
+  }
+
+  private clearPersistedFiltersState(): void {
+    try {
+      localStorage.removeItem(SALES_FILTERS_STORAGE_KEY);
+    } catch {
+      // Ignora errores de storage para no bloquear la vista.
+    }
+  }
+
+  private normalizeCachedJornadaSelection(
+    selection: JornadaSelection | null | undefined,
+    useDateRange: boolean,
+  ): JornadaSelection | null {
+    if (useDateRange) {
+      return 'all';
+    }
+    if (selection === 'all') {
+      return 'all';
+    }
+    if (selection !== null && selection !== undefined && Number.isInteger(selection)) {
+      return this.jornadas.some((jornada) => jornada.id === selection)
+        ? selection
+        : this.jornadas.length
+          ? this.resolveDefaultJornadaSelection()
+          : null;
+    }
+    return this.jornadas.length ? this.resolveDefaultJornadaSelection() : null;
+  }
+
   private syncAppliedFiltersWithDraft(): void {
     const { start, end } = this.normalizedRangeFrom(this.startDate, this.endDate);
     this.appliedStartDate = start;
@@ -1142,6 +1608,14 @@ export class Ventas implements OnInit, OnDestroy {
     return this.selectedJornadaId !== null;
   }
 
+  private hasValidAppliedScopeSelection(): boolean {
+    if (this.appliedUseDateRange) {
+      const { start, end } = this.normalizedRangeFrom(this.appliedStartDate, this.appliedEndDate);
+      return Boolean(start && end);
+    }
+    return this.appliedJornadaId !== null;
+  }
+
   private syncDraftSelectionBeforeApply(): void {
     const hasCompleteDateRange = Boolean(this.startDate && this.endDate);
     this.useDateRangeDraft = hasCompleteDateRange;
@@ -1156,17 +1630,80 @@ export class Ventas implements OnInit, OnDestroy {
     if (this.jornadaAbiertaId !== null) {
       const jornadaAbierta = this.jornadas.find((jornada) => jornada.id === this.jornadaAbiertaId);
       if (jornadaAbierta?.fecha) {
-        return this.isoDateKey(jornadaAbierta.fecha);
+        return this.jornadaDateKey(jornadaAbierta);
       }
     }
     if (this.jornadas.length) {
-      return this.isoDateKey(this.jornadas[0].fecha);
+      return this.jornadaDateKey(this.jornadas[0]);
     }
     return this.toIsoDate(new Date());
   }
 
+  private jornadaDateLabel(jornada: JornadaApi): string {
+    const base = this.formatDate(this.jornadaDateKey(jornada));
+    const etiqueta = this.jornadaTurnLabel(jornada);
+    return etiqueta ? `${base} (${etiqueta})` : base;
+  }
+
+  private jornadaTurnLabel(jornada: JornadaApi): string {
+    const info = this.jornadaDayInfoById.get(jornada.id);
+    if (!info || info.total <= 1) {
+      return '';
+    }
+    return `${this.ordinalLabel(info.index)} jornada del día`;
+  }
+
+  private ordinalLabel(index: number): string {
+    switch (index) {
+      case 1:
+        return '1ra';
+      case 2:
+        return '2da';
+      case 3:
+        return '3ra';
+      default:
+        return `${index}ta`;
+    }
+  }
+
+  private rebuildJornadaDayInfo(): void {
+    this.jornadaDayInfoById.clear();
+    if (!this.jornadas.length) {
+      return;
+    }
+
+    const jornadasByDate = new Map<string, JornadaApi[]>();
+    this.jornadas.forEach((jornada) => {
+      const fechaKey = this.jornadaDateKey(jornada);
+      const group = jornadasByDate.get(fechaKey) ?? [];
+      group.push(jornada);
+      jornadasByDate.set(fechaKey, group);
+    });
+
+    jornadasByDate.forEach((jornadasMismoDia) => {
+      jornadasMismoDia.sort((a, b) => {
+        const aperturaA = new Date(a.horaApertura ?? '').getTime();
+        const aperturaB = new Date(b.horaApertura ?? '').getTime();
+        const safeA = Number.isFinite(aperturaA) ? aperturaA : 0;
+        const safeB = Number.isFinite(aperturaB) ? aperturaB : 0;
+        if (safeA === safeB) {
+          return a.id - b.id;
+        }
+        return safeA - safeB;
+      });
+
+      const total = jornadasMismoDia.length;
+      jornadasMismoDia.forEach((jornada, index) => {
+        this.jornadaDayInfoById.set(jornada.id, {
+          index: index + 1,
+          total,
+        });
+      });
+    });
+  }
+
   private focusOnJornada(jornada: JornadaApi): void {
-    const fecha = this.isoDateKey(jornada.fecha);
+    const fecha = this.jornadaDateKey(jornada);
     this.rangePreset = 'custom';
     this.useDateRangeDraft = false;
     this.startDate = fecha;
@@ -1175,6 +1712,21 @@ export class Ventas implements OnInit, OnDestroy {
     this.selectedJornadaId = this.jornadasFiltradas.some((item) => item.id === jornada.id)
       ? jornada.id
       : this.resolveDefaultJornadaSelection();
+    this.updatePendingState();
+  }
+
+  private async autoApplyOpenedJornada(jornada: JornadaApi): Promise<void> {
+    this.focusOnJornada(jornada);
+    this.followActiveJornada = true;
+    this.hasManualConsulta = true;
+    this.appliedUseDateRange = false;
+    this.appliedJornadaId = this.selectedJornadaId;
+    this.appliedStartDate = this.startDate;
+    this.appliedEndDate = this.endDate;
+    this.saveLastJornadaSelection(this.selectedJornadaId);
+    this.persistFiltersState();
+    this.updatePendingState();
+    await this.loadResumenVentas();
     this.updatePendingState();
   }
 
@@ -1237,8 +1789,43 @@ export class Ventas implements OnInit, OnDestroy {
       return true;
     }
 
-    const fechaJornada = this.isoDateKey(jornada.fecha);
+    const fechaJornada = this.jornadaDateKey(jornada);
     return fechaJornada >= start && fechaJornada <= end;
+  }
+
+  private jornadaDateKey(jornada: JornadaApi): string {
+    const fecha = this.isoDateKey(jornada?.fecha ?? '');
+    if (!jornada?.horaApertura) {
+      return fecha;
+    }
+
+    const aperturaIso = this.isoDateKey(jornada.horaApertura);
+    if (!fecha || aperturaIso !== fecha) {
+      return fecha || aperturaIso;
+    }
+
+    // Compatibilidad con jornadas antiguas guardadas como UTC sin zona.
+    const aperturaUtcLocalDate = this.isoDateAssumingUtc(jornada.horaApertura);
+    if (aperturaUtcLocalDate && aperturaUtcLocalDate < fecha) {
+      return aperturaUtcLocalDate;
+    }
+
+    return fecha;
+  }
+
+  private isoDateAssumingUtc(rawDateTime: string): string {
+    const value = (rawDateTime ?? '').toString().trim();
+    if (!value) {
+      return '';
+    }
+
+    const hasTimezone = /(?:[zZ]|[+-]\d{2}:\d{2})$/.test(value);
+    const normalized = value.includes('T') ? value : `${value}T00:00:00`;
+    const parsed = new Date(hasTimezone ? normalized : `${normalized}Z`);
+    if (Number.isNaN(parsed.getTime())) {
+      return '';
+    }
+    return this.toIsoDate(parsed);
   }
 
   private shouldRealtimeRefreshForPedido(jornadaId: number): boolean {

@@ -36,10 +36,9 @@ public class ResumenPropinaDiarioController {
     // ✅ Periodo actual de 15 días (móvil)
     @GetMapping("/actual")
     public ResponseEntity<ApiResponse<Map<String, Object>>> obtenerPeriodoActual() {
-        LocalDate hoy = LocalDate.now();
-        int offset = (hoy.getDayOfMonth() - 1) % 15;
-        LocalDate inicio = hoy.minusDays(offset);
-        LocalDate fin = inicio.plusDays(14);
+        ResumenPropinaDiarioService.PropinasPeriodo periodo = service.resolveCurrentPeriod();
+        LocalDate inicio = periodo.inicio();
+        LocalDate fin = periodo.fin();
         BigDecimal acumulado = service.getTotalPropinaEntreFechas(inicio, fin);
 
         Map<String, Object> data = new HashMap<>();

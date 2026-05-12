@@ -1,5 +1,6 @@
 package com.pagoda.pagoda_api.service;
 
+import com.pagoda.pagoda_api.config.BusinessClock;
 import com.pagoda.pagoda_api.entity.ventas.Venta;
 import com.pagoda.pagoda_api.exception.ErrorCode;
 import com.pagoda.pagoda_api.exception.PagodaException;
@@ -10,7 +11,6 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -24,6 +24,7 @@ public class VentaService {
     private final ResumenPlatillosDiarioService resumenPlatillosDiarioService;
     private final ResumenPropinaDiarioService resumenPropinaDiarioService;
     private final SimpMessagingTemplate messagingTemplate;
+    private final BusinessClock businessClock;
 
     public List<Venta> listarActivas() {
         return ventaRepository.findByFechaCierreIsNull();
@@ -50,7 +51,7 @@ public class VentaService {
         }
 
         venta.setJornada(jornadaService.asegurarJornadaActiva(venta.getUsuario()));
-        venta.setFechaCreacion(LocalDateTime.now());
+        venta.setFechaCreacion(businessClock.now());
         venta.setFechaCierre(null);
         venta.setTotalCuenta(venta.getTotalCuenta() == null ? BigDecimal.ZERO : venta.getTotalCuenta());
         Venta saved = ventaRepository.save(venta);
@@ -66,7 +67,7 @@ public class VentaService {
         if (venta.getFechaCierre() != null) {
             throw new PagodaException(ErrorCode.VENTA_YA_CERRADA);
         }
-        venta.setFechaCierre(LocalDateTime.now());
+        venta.setFechaCierre(businessClock.now());
         Venta saved = ventaRepository.save(venta);
 
         // Publicar evento de pedido cerrado (reemplaza la antigua publicación a /topic/ventas)
@@ -74,16 +75,15 @@ public class VentaService {
 
         LocalDate fechaEvento = saved.getJornada() != null && saved.getJornada().getFecha() != null
                 ? saved.getJornada().getFecha()
-                : LocalDate.now();
+                : businessClock.today();
 
         List<Map<String, Object>> top5 = resumenPlatillosDiarioService.obtenerTop5Resumen(fechaEvento, fechaEvento);
         messagingTemplate.convertAndSend("/topic/top5",
                 (Object) Map.of("fecha", fechaEvento.toString(), "top5", top5));
 
-        LocalDate hoy = LocalDate.now();
-        int offset = (hoy.getDayOfMonth() - 1) % 15;
-        LocalDate periodoInicio = hoy.minusDays(offset);
-        LocalDate periodoFin = periodoInicio.plusDays(14);
+        ResumenPropinaDiarioService.PropinasPeriodo periodo = resumenPropinaDiarioService.resolveCurrentPeriod();
+        LocalDate periodoInicio = periodo.inicio();
+        LocalDate periodoFin = periodo.fin();
         BigDecimal acumulado = resumenPropinaDiarioService.getTotalPropinaEntreFechas(periodoInicio, periodoFin);
         messagingTemplate.convertAndSend("/topic/propinas",
                 (Object) Map.of("acumulado", acumulado, "periodoInicio", periodoInicio.toString()));

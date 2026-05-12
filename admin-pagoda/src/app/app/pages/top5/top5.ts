@@ -1,8 +1,7 @@
-import { ChangeDetectorRef, Component, OnDestroy, OnInit } from '@angular/core';
+import { ChangeDetectorRef, Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ApiClientService } from '../../core/api/api-client.service';
-import { WebSocketService } from '../../core/websocket/websocket.service';
 
 type RangePreset = 'weekly' | 'monthly' | 'custom';
 
@@ -24,7 +23,7 @@ interface JornadaApi {
   templateUrl: './top5.html',
   styleUrl: './top5.css'
 })
-export class Top5Component implements OnInit, OnDestroy {
+export class Top5Component implements OnInit {
   rangePreset: RangePreset = 'custom';
   startDate = '';
   endDate = '';
@@ -36,39 +35,28 @@ export class Top5Component implements OnInit, OnDestroy {
   top5: PlatilloTop[] = [];
   cargando = false;
   error = '';
-  realtimeActivo = true;
-
-  private wsUnsubscribe: (() => void) | null = null;
 
   constructor(
     private readonly apiClient: ApiClientService,
-    private readonly wsService: WebSocketService,
     private readonly cdr: ChangeDetectorRef,
   ) {}
 
   async ngOnInit(): Promise<void> {
     await this.inicializarRangoGlobal();
-    await this.aplicarFiltros();
-    await this.wsService.connect();
-    this.suscribirActualizaciones();
-  }
-
-  ngOnDestroy(): void {
-    this.wsUnsubscribe?.();
-    this.wsUnsubscribe = null;
+    await this.consultarTop5();
   }
 
   onPresetChange(): void {
-    const today = new Date();
-    let start = new Date(today);
-    let end = new Date(today);
+    const referenceDate = this.parseIsoDate(this.maxDate || this.toISO(new Date()));
+    let start = new Date(referenceDate);
+    let end = new Date(referenceDate);
 
     if (this.rangePreset === 'weekly') {
-      start = new Date(today);
-      start.setDate(today.getDate() - 6);
+      start = new Date(referenceDate);
+      start.setDate(referenceDate.getDate() - 6);
     } else if (this.rangePreset === 'monthly') {
-      start = new Date(today.getFullYear(), today.getMonth(), 1);
-      end = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+      start = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), 1);
+      end = new Date(referenceDate.getFullYear(), referenceDate.getMonth() + 1, 0);
     }
 
     if (this.rangePreset !== 'custom') {
@@ -84,7 +72,7 @@ export class Top5Component implements OnInit, OnDestroy {
     this.rangePreset = 'custom';
   }
 
-  async aplicarFiltros(): Promise<void> {
+  async consultarTop5(): Promise<void> {
     if (!this.startDate || !this.endDate) {
       this.top5 = [];
       this.error = 'Selecciona un rango de fechas válido.';
@@ -98,10 +86,20 @@ export class Top5Component implements OnInit, OnDestroy {
     await this.cargarTop5();
   }
 
-  onRealtimeToggleChange(): void {
-    if (this.realtimeActivo) {
-      void this.cargarTop5();
+  async limpiarFiltros(): Promise<void> {
+    if (!this.minDate || !this.maxDate) {
+      return;
     }
+    this.rangePreset = 'custom';
+    this.startDate = this.minDate;
+    this.endDate = this.maxDate;
+    this.appliedStartDate = this.minDate;
+    this.appliedEndDate = this.maxDate;
+    await this.cargarTop5();
+  }
+
+  isConsultarDisabled(): boolean {
+    return this.cargando || !this.startDate || !this.endDate;
   }
 
   private async inicializarRangoGlobal(): Promise<void> {
@@ -113,13 +111,16 @@ export class Top5Component implements OnInit, OnDestroy {
         .sort((a, b) => a.localeCompare(b));
 
       if (fechas.length > 0) {
-        this.minDate = fechas[0];
-        this.maxDate = fechas[fechas.length - 1];
+        const today = this.toISO(new Date());
+        const minFromData = fechas[0];
+        const maxFromData = fechas[fechas.length - 1];
+
+        this.maxDate = maxFromData > today ? today : maxFromData;
+        this.minDate = minFromData > this.maxDate ? this.maxDate : minFromData;
         this.startDate = this.minDate;
         this.endDate = this.maxDate;
         this.appliedStartDate = this.startDate;
         this.appliedEndDate = this.endDate;
-        this.realtimeActivo = true;
         return;
       }
     } catch {
@@ -133,7 +134,6 @@ export class Top5Component implements OnInit, OnDestroy {
     this.endDate = hoy;
     this.appliedStartDate = this.startDate;
     this.appliedEndDate = this.endDate;
-    this.realtimeActivo = true;
   }
 
   private async cargarTop5(): Promise<void> {
@@ -159,15 +159,6 @@ export class Top5Component implements OnInit, OnDestroy {
     }
   }
 
-  private suscribirActualizaciones(): void {
-    this.wsUnsubscribe = this.wsService.subscribe('/topic/top5', (_event: any) => {
-      if (!this.realtimeActivo) {
-        return;
-      }
-      void this.cargarTop5();
-    });
-  }
-
   private toISO(date: Date): string {
     const y = date.getFullYear();
     const m = String(date.getMonth() + 1).padStart(2, '0');
@@ -180,6 +171,14 @@ export class Top5Component implements OnInit, OnDestroy {
       return { inicio, fin };
     }
     return { inicio: fin, fin: inicio };
+  }
+
+  private parseIsoDate(isoDate: string): Date {
+    const parsed = new Date(`${isoDate}T00:00:00`);
+    if (Number.isNaN(parsed.getTime())) {
+      return new Date();
+    }
+    return parsed;
   }
 
   private clampDate(isoDate: string): string {

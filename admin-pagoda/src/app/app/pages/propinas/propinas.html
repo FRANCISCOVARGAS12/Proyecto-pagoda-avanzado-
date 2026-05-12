@@ -17,12 +17,36 @@
       <label for="endDate">Fin</label>
       <input id="endDate" type="date" [(ngModel)]="endDate" disabled />
     </div>
+
+    <div class="actions-group">
+      <button type="button" class="btn btn-consultar" (click)="consultarPropinas()" [disabled]="isConsultarDisabled()">
+        @if (cargando) {
+          <span class="btn-spinner" aria-hidden="true"></span>
+          Consultando...
+        } @else {
+          Consultar
+        }
+      </button>
+      <button type="button" class="btn" (click)="limpiarFiltros()" [disabled]="cargando">
+        Limpiar filtros
+      </button>
+    </div>
   </div>
+
+  @if (infoMessage) {
+    <p class="info-message">{{ infoMessage }}</p>
+  }
 
   <div class="tip-wrapper">
     <div class="tip-card">
+      <p>Propina del día</p>
+      <strong>{{ fmt(diario) }}</strong>
+      <small>{{ dailyStatusLabel() }}</small>
+    </div>
+    <div class="tip-card">
       <p>Total acumulado de propinas</p>
       <strong>{{ fmt(acumulado) }}</strong>
+      <small>{{ rangeLabel() }}</small>
     </div>
   </div>
 </section>

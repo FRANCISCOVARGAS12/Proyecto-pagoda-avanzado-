@@ -14,11 +14,28 @@ import java.util.List;
 public interface PagoRepository extends JpaRepository<Pago, Integer> {
     List<Pago> findByVentaId(Integer ventaId);
 
-    @Query("""
-            SELECT COALESCE(SUM(COALESCE(p.propinaNeto, p.propinaMonto, 0)), 0)
-            FROM Pago p
-            WHERE p.venta.jornada.fecha BETWEEN :inicio AND :fin
-            """)
+    @Query(value = """
+            SELECT COALESCE(SUM(
+                CASE
+                    WHEN COALESCE(p.propina_neto, 0) > 0 THEN p.propina_neto
+                    ELSE COALESCE(p.propina_monto, 0)
+                END
+            ), 0)
+            FROM ventas.pagos p
+            JOIN ventas.ventas v ON p.venta_id = v.id
+            LEFT JOIN operacion.jornadas j ON v.jornada_id = j.id
+            WHERE COALESCE(
+                CAST(v.fecha_cierre AS date),
+                CAST(v.fecha_creacion AS date),
+                CASE
+                    WHEN j.hora_apertura IS NOT NULL
+                      AND CAST(j.hora_apertura AS time) < TIME '06:00:00'
+                      AND j.fecha = CAST(j.hora_apertura AS date)
+                    THEN CAST(j.fecha - INTERVAL '1 day' AS date)
+                    ELSE j.fecha
+                END
+            ) BETWEEN :inicio AND :fin
+            """, nativeQuery = true)
     BigDecimal sumPropinasNetasByRango(@Param("inicio") LocalDate inicio,
                                        @Param("fin") LocalDate fin);
 }
