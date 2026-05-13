@@ -21,6 +21,7 @@ public class VentaService {
 
     private final VentaRepository ventaRepository;
     private final JornadaService jornadaService;
+    private final PagoService pagoService;
     private final ResumenPlatillosDiarioService resumenPlatillosDiarioService;
     private final ResumenPropinaDiarioService resumenPropinaDiarioService;
     private final SimpMessagingTemplate messagingTemplate;
@@ -67,6 +68,9 @@ public class VentaService {
         if (venta.getFechaCierre() != null) {
             throw new PagodaException(ErrorCode.VENTA_YA_CERRADA);
         }
+
+        pagoService.normalizeSalePaymentsIfNeeded(venta.getId(), venta.getTotalCuenta());
+
         venta.setFechaCierre(businessClock.now());
         Venta saved = ventaRepository.save(venta);
 

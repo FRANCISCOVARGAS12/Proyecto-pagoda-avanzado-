@@ -6,7 +6,7 @@ import { WebSocketService } from '../../core/websocket/websocket.service';
 type RangePreset = 'weekly' | 'monthly' | 'custom';
 type JornadaSelection = number | 'all';
 type PaymentMethodKey = 'efectivo' | 'tarjeta';
-type TipDiscountPolicy = 'same-or-null' | 'always';
+type TipDiscountPolicy = 'never' | 'same-or-null' | 'always';
 const LAST_JORNADA_STORAGE_KEY = 'pagoda-ventas-last-jornada';
 const SALES_FILTERS_STORAGE_KEY = 'pagoda-ventas-filtros-v1';
 
@@ -1029,6 +1029,18 @@ export class Ventas implements OnInit, OnDestroy {
       };
     });
 
+    const dishesTotal = this.roundCurrency(
+      dishes.reduce((accumulator, dish) => accumulator + this.toFiniteNumber(Number(dish.precio ?? 0)), 0),
+    );
+    const targetBruto = dishesTotal > 0
+      ? dishesTotal
+      : this.roundCurrency(Number(venta.totalCuenta ?? 0));
+    const brutoByMethodNever = this.calculateBaseTotalsByMethod(
+      pagos,
+      (pago) => Number(pago.monto ?? 0),
+      (pago) => Number(pago.propinaMonto ?? 0),
+      'never',
+    );
     const brutoByMethodDefault = this.calculateBaseTotalsByMethod(
       pagos,
       (pago) => Number(pago.monto ?? 0),
@@ -1041,15 +1053,17 @@ export class Ventas implements OnInit, OnDestroy {
       (pago) => Number(pago.propinaMonto ?? 0),
       'always',
     );
-    const targetBruto = this.roundCurrency(Number(venta.totalCuenta ?? 0));
-    const selectedPolicy = this.shouldUseAlwaysTipDiscount(
+    const selectedPolicy = this.chooseTipDiscountPolicy(
+      brutoByMethodNever,
       brutoByMethodDefault,
       brutoByMethodAlways,
       targetBruto,
-    )
-      ? 'always'
-      : 'same-or-null';
-    const brutoByMethod = selectedPolicy === 'always' ? brutoByMethodAlways : brutoByMethodDefault;
+    );
+    const brutoByMethod = selectedPolicy === 'never'
+      ? brutoByMethodNever
+      : selectedPolicy === 'always'
+        ? brutoByMethodAlways
+        : brutoByMethodDefault;
 
     const netoByMethod = this.calculateBaseTotalsByMethod(
       pagos,
@@ -1064,7 +1078,7 @@ export class Ventas implements OnInit, OnDestroy {
     const pagosTarjeta = pagos.filter(
       (pago) => this.resolvePaymentMethod(pago.metodoPago?.nombre) === 'tarjeta',
     );
-    const tarjetaComisionPorcentaje = this.resolveOrderCardCommission(pagosTarjeta);
+    const tarjetaComisionPorcentaje = this.resolveOrderCardCommission(pagosTarjeta, selectedPolicy);
 
     const tarjetaBrutoRedondeado = this.roundCurrency(tarjetaBruto);
     const tarjetaNetoRedondeado = this.roundCurrency(tarjetaNeto);
@@ -1119,31 +1133,37 @@ export class Ventas implements OnInit, OnDestroy {
         continue;
       }
 
-      const amount = this.roundCurrency(amountSelector(pago));
-      const tip = this.roundCurrency(tipSelector(pago));
+      const amount = this.toFiniteNumber(amountSelector(pago));
+      const tip = this.normalizeTipValue(pago, this.toFiniteNumber(tipSelector(pago)));
       const tipMethod = this.resolvePaymentMethod(pago.propinaMetodoPago?.nombre);
       const shouldSubtractTip =
+        tipDiscountPolicy !== 'never' &&
         tip > 0 &&
         amount + 0.0001 >= tip &&
         (tipDiscountPolicy === 'always' || tipMethod === paymentMethod || tipMethod === null);
-      const baseAmount = shouldSubtractTip ? this.roundCurrency(Math.max(0, amount - tip)) : amount;
-      totals[paymentMethod] = this.roundCurrency(totals[paymentMethod] + baseAmount);
+      const baseAmount = shouldSubtractTip ? Math.max(0, amount - tip) : amount;
+      totals[paymentMethod] = this.toFiniteNumber(totals[paymentMethod]) + baseAmount;
     }
 
     return totals;
   }
 
-  private shouldUseAlwaysTipDiscount(
+  private chooseTipDiscountPolicy(
+    neverTotals: Record<PaymentMethodKey, number>,
     defaultTotals: Record<PaymentMethodKey, number>,
     alwaysTotals: Record<PaymentMethodKey, number>,
     targetBruto: number,
-  ): boolean {
+  ): TipDiscountPolicy {
     if (!(targetBruto > 0)) {
-      return true;
+      return 'never';
     }
-    const defaultDiff = Math.abs(this.sumTotals(defaultTotals) - targetBruto);
-    const alwaysDiff = Math.abs(this.sumTotals(alwaysTotals) - targetBruto);
-    return alwaysDiff + 0.01 < defaultDiff;
+    const candidates: Array<{ policy: TipDiscountPolicy; diff: number }> = [
+      { policy: 'never', diff: Math.abs(this.sumTotals(neverTotals) - targetBruto) },
+      { policy: 'same-or-null', diff: Math.abs(this.sumTotals(defaultTotals) - targetBruto) },
+      { policy: 'always', diff: Math.abs(this.sumTotals(alwaysTotals) - targetBruto) },
+    ];
+    candidates.sort((a, b) => a.diff - b.diff);
+    return candidates[0]?.policy ?? 'never';
   }
 
   private sumTotals(totals: Record<PaymentMethodKey, number>): number {
@@ -1167,7 +1187,22 @@ export class Ventas implements OnInit, OnDestroy {
     return Math.round((value + Number.EPSILON) * 100) / 100;
   }
 
-  private resolveOrderCardCommission(pagosTarjeta: PagoApi[]): number | undefined {
+  private toFiniteNumber(value: number): number {
+    return Number.isFinite(value) ? value : 0;
+  }
+
+  private normalizeTipValue(pago: PagoApi, tipValue: number): number {
+    const tipAmount = this.toFiniteNumber(Number(pago.propinaMonto ?? 0));
+    if (tipAmount <= 0) {
+      return Math.max(0, tipValue);
+    }
+    return Math.min(Math.max(0, tipValue), tipAmount);
+  }
+
+  private resolveOrderCardCommission(
+    pagosTarjeta: PagoApi[],
+    tipDiscountPolicy: TipDiscountPolicy,
+  ): number | undefined {
     if (!pagosTarjeta.length) {
       return undefined;
     }
@@ -1175,8 +1210,16 @@ export class Ventas implements OnInit, OnDestroy {
     let weightedRateSum = 0;
     let weightSum = 0;
     for (const pago of pagosTarjeta) {
-      const rate = this.roundCurrency(Number(pago.comisionPorcentaje ?? 0));
-      const weight = this.roundCurrency(Number(pago.monto ?? 0));
+      const rate = this.toFiniteNumber(Number(pago.comisionPorcentaje ?? 0));
+      const amount = this.toFiniteNumber(Number(pago.monto ?? 0));
+      const tip = this.normalizeTipValue(pago, this.toFiniteNumber(Number(pago.propinaMonto ?? 0)));
+      const tipMethod = this.resolvePaymentMethod(pago.propinaMetodoPago?.nombre);
+      const shouldSubtractTip =
+        tipDiscountPolicy !== 'never' &&
+        tip > 0 &&
+        amount + 0.0001 >= tip &&
+        (tipDiscountPolicy === 'always' || tipMethod === 'tarjeta' || tipMethod === null);
+      const weight = shouldSubtractTip ? Math.max(0, amount - tip) : amount;
       if (rate < 0 || weight <= 0) {
         continue;
       }
@@ -1200,7 +1243,7 @@ export class Ventas implements OnInit, OnDestroy {
     let weightSum = 0;
     for (const order of withCard) {
       const rate = Number(order.tarjetaComisionPorcentaje ?? NaN);
-      const weight = this.roundCurrency(Number(order.tarjetaBruto ?? 0));
+      const weight = this.toFiniteNumber(Number(order.tarjetaBruto ?? 0));
       if (!Number.isFinite(rate) || rate < 0 || weight <= 0) {
         continue;
       }

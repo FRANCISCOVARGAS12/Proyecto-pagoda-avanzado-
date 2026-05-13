@@ -147,7 +147,7 @@ public class JornadaService {
         List<Jornada> vigentes = new ArrayList<>();
         for (Jornada jornada : abiertas) {
             if (debeCerrarPorCambioDeDia(jornada, fechaReferencia)) {
-                Jornada cerrada = cerrarYGuardar(jornada);
+                Jornada cerrada = cerrarYGuardar(jornada, horaCierreAutomatica(jornada));
                 notifyJornadaEvent("CERRADA", cerrada);
                 continue;
             }
@@ -174,11 +174,23 @@ public class JornadaService {
     }
 
     private Jornada cerrarYGuardar(Jornada jornada) {
+        return cerrarYGuardar(jornada, businessClock.now());
+    }
+
+    private Jornada cerrarYGuardar(Jornada jornada, LocalDateTime horaCierre) {
         jornada.setEstado(ESTADO_CERRADA);
         if (jornada.getHoraCierre() == null) {
-            jornada.setHoraCierre(businessClock.now());
+            jornada.setHoraCierre(horaCierre);
         }
         return jornadaRepository.save(jornada);
+    }
+
+    private LocalDateTime horaCierreAutomatica(Jornada jornada) {
+        LocalDate fechaJornada = jornada.getFecha();
+        if (fechaJornada == null) {
+            return businessClock.now();
+        }
+        return fechaJornada.plusDays(1).atStartOfDay();
     }
 
     private void notifyJornadaEvent(String accion, Jornada jornada) {

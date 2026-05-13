@@ -50,11 +50,15 @@ INSERT INTO catalogos.categorias (nombre, descripcion) VALUES
 INSERT INTO operacion.parametros_local (
     fondo_lunes, fondo_martes, fondo_miercoles,
     fondo_jueves, fondo_viernes, fondo_sabado, fondo_domingo,
-    comision_bancaria
+    comision_bancaria,
+    rol_por_defecto, auto_logout_minutos, impresora_tickets,
+    imprimir_resumen_cierre, encabezado_ticket, pie_ticket
 ) VALUES (
              1000, 1000, 1000,
              1000, 1000, 1000, 1000,
-             3.5
+             3.5,
+             'MESERO', 30, 'default',
+             true, 'Restaurante Asiático', '¡Gracias por su visita!'
          ) ON CONFLICT DO NOTHING;
 
 INSERT INTO operacion.mesas (numero, capacidad, estado_id) VALUES

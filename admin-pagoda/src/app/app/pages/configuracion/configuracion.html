@@ -21,6 +21,7 @@
                     [id]="option.id"
                     type="checkbox"
                     [(ngModel)]="option.value"
+                    (ngModelChange)="onOptionValueChanged(option)"
                     [name]="option.id"
                     class="toggle-input"
                   />
@@ -71,6 +72,7 @@
                     [id]="option.id"
                     type="number"
                     [(ngModel)]="option.value"
+                    (ngModelChange)="onOptionValueChanged(option)"
                     [name]="option.id"
                     class="input-field"
                   />
@@ -80,6 +82,7 @@
                     [id]="option.id"
                     type="text"
                     [(ngModel)]="option.value"
+                    (ngModelChange)="onOptionValueChanged(option)"
                     [name]="option.id"
                     class="input-field"
                   />

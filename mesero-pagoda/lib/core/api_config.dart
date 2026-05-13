@@ -29,4 +29,10 @@ class ApiConfig {
   static String get crearVentaPago => '$baseUrl/api/ventas/pagos';
   static String cerrarVenta(int ventaId) =>
       '$baseUrl/api/ventas/$ventaId/cerrar';
+  static String ventasPorJornada(int jornadaId) =>
+      '$baseUrl/api/ventas/jornada/$jornadaId';
+  static String itemsPorVenta(int ventaId) =>
+      '$baseUrl/api/ventas/items/venta/$ventaId';
+  static String pagosPorVenta(int ventaId) =>
+      '$baseUrl/api/ventas/pagos/venta/$ventaId';
 }

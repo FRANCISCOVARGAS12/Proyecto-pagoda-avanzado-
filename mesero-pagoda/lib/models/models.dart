@@ -67,3 +67,47 @@ class PaymentRecord {
     this.tipMethod,
   });
 }
+
+class TicketItem {
+  final String name;
+  final double price;
+  final int? diner;
+
+  const TicketItem({
+    required this.name,
+    required this.price,
+    this.diner,
+  });
+}
+
+class TicketPayment {
+  final PaymentMethod method;
+  final double amount;
+  final double netAmount;
+
+  const TicketPayment({
+    required this.method,
+    required this.amount,
+    required this.netAmount,
+  });
+}
+
+class ClosedTicket {
+  final int folio;
+  final String tableName;
+  final String waiterName;
+  final DateTime? closedAt;
+  final List<TicketItem> items;
+  final List<TicketPayment> payments;
+
+  const ClosedTicket({
+    required this.folio,
+    required this.tableName,
+    required this.waiterName,
+    required this.closedAt,
+    required this.items,
+    required this.payments,
+  });
+
+  double get subtotal => items.fold(0, (sum, item) => sum + item.price);
+}

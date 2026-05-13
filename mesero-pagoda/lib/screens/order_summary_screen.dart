@@ -218,8 +218,8 @@ class _OrderSummaryScreenState extends State<OrderSummaryScreen>
           ),
           const SizedBox(height: 8),
           ...kitchen.asMap().entries.map(
-            (e) => _itemRow(e.value, e.key, isNew: false),
-          ),
+                (e) => _itemRow(e.value, e.key, isNew: false),
+              ),
         ],
         if (pending.isNotEmpty) ...[
           if (kitchen.isNotEmpty) const SizedBox(height: 16),
@@ -230,8 +230,8 @@ class _OrderSummaryScreenState extends State<OrderSummaryScreen>
           ),
           const SizedBox(height: 8),
           ...pending.asMap().entries.map(
-            (e) => _itemRow(e.value, e.key, isNew: true),
-          ),
+                (e) => _itemRow(e.value, e.key, isNew: true),
+              ),
         ],
       ],
     );
@@ -514,6 +514,7 @@ class _PaymentSheetState extends State<_PaymentSheet> {
   final Map<int, String> _eqDinerTipMethods = {};
   final Map<int, String> _eqDinerTipCardModes = {};
   final Set<int> _paidEqDiners = {};
+  int? _activeVentaId;
   bool _isClosingSale = false;
 
   @override
@@ -562,20 +563,21 @@ class _PaymentSheetState extends State<_PaymentSheet> {
     double baseAmount,
     String method, {
     bool cardAsPercent = false,
-  }) => _parseTipText(
-    ctrl.text,
-    baseAmount,
-    method,
-    cardAsPercent: cardAsPercent,
-  );
+  }) =>
+      _parseTipText(
+        ctrl.text,
+        baseAmount,
+        method,
+        cardAsPercent: cardAsPercent,
+      );
 
   double _globalTip(OrderProvider order) => _tipFromCtrl(
-    _tipGlobalCtrl,
-    order.grandTotal,
-    _tipGlobalMethod,
-    cardAsPercent:
-        _tipGlobalMethod == 'tarjeta' && _tipGlobalCardMode == 'percent',
-  );
+        _tipGlobalCtrl,
+        order.grandTotal,
+        _tipGlobalMethod,
+        cardAsPercent:
+            _tipGlobalMethod == 'tarjeta' && _tipGlobalCardMode == 'percent',
+      );
 
   List<int> _dinersWithItems(OrderProvider order) {
     return List.generate(
@@ -640,9 +642,8 @@ class _PaymentSheetState extends State<_PaymentSheet> {
       return order.grandTotal + tips;
     }
     if (_mode == 'equitativo') {
-      final basePerDiner = order.diners > 0
-          ? order.grandTotal / order.diners
-          : 0.0;
+      final basePerDiner =
+          order.diners > 0 ? order.grandTotal / order.diners : 0.0;
       final tips = List.generate(order.diners, (i) => i + 1).fold<double>(
         0,
         (sum, d) => sum + _equitativoTipForDiner(order, d, basePerDiner),
@@ -652,26 +653,42 @@ class _PaymentSheetState extends State<_PaymentSheet> {
     return order.grandTotal;
   }
 
-  /// Dado un total y el efectivo ingresado, devuelve el resto en tarjeta.
-  /// Devuelve null si el efectivo supera el total.
-  double? _cardAmount(double total, double cash) {
-    if (cash < 0 || cash > total + 0.001) return null;
-    return (total - cash).clamp(0, total);
+  /// Divide solo el subtotal de productos; la propina viaja aparte.
+  double? _cardAmount(double productTotal, double cash) {
+    if (cash < 0 || cash > productTotal + 0.001) return null;
+    return (productTotal - cash).clamp(0, productTotal);
   }
 
-  bool _mixtoValid(double total, TextEditingController ctrl) {
+  bool _mixtoValid(double productTotal, TextEditingController ctrl) {
     final cash = _parseAmount(ctrl);
-    return cash > 0 && cash < total - 0.001;
+    return cash > 0 && cash < productTotal - 0.001;
   }
 
   PaymentMethod _paymentFromKey(String key) =>
       key == 'tarjeta' ? PaymentMethod.tarjeta : PaymentMethod.efectivo;
 
+  Future<int> _ensureVentaIniciada(
+    OrderProvider order,
+    ChargeMode mode,
+  ) async {
+    final existing = _activeVentaId;
+    if (existing != null) return existing;
+    final ventaId = await order.iniciarVentaParaCobro(
+      mode: mode,
+      totalCuenta: order.grandTotal,
+    );
+    if (mounted) {
+      setState(() => _activeVentaId = ventaId);
+    } else {
+      _activeVentaId = ventaId;
+    }
+    return ventaId;
+  }
+
   List<PaymentRecord> _buildTotalPayments(
     double total,
     double tip,
     double? cash,
-    double? _card,
   ) {
     final baseTotal = (total - tip).clamp(0, total).toDouble();
     final tipMethod = tip > 0 ? _paymentFromKey(_tipGlobalMethod) : null;
@@ -683,140 +700,155 @@ class _PaymentSheetState extends State<_PaymentSheet> {
         PaymentRecord(
           diner: null,
           method: PaymentMethod.efectivo,
-          amount: cashBase + (tipMethod == PaymentMethod.efectivo ? tip : 0),
+          amount: cashBase,
           tipAmount: tipMethod == PaymentMethod.efectivo ? tip : 0,
           tipMethod: tipMethod == PaymentMethod.efectivo ? tipMethod : null,
         ),
         PaymentRecord(
           diner: null,
           method: PaymentMethod.tarjeta,
-          amount: cardBase + (tipMethod == PaymentMethod.tarjeta ? tip : 0),
+          amount: cardBase,
           tipAmount: tipMethod == PaymentMethod.tarjeta ? tip : 0,
           tipMethod: tipMethod == PaymentMethod.tarjeta ? tipMethod : null,
         ),
       ].where((p) => p.amount > 0).toList();
     }
 
-    final method = _method == 'tarjeta'
-        ? PaymentMethod.tarjeta
-        : PaymentMethod.efectivo;
+    final method =
+        _method == 'tarjeta' ? PaymentMethod.tarjeta : PaymentMethod.efectivo;
     return [
       PaymentRecord(
         diner: null,
         method: method,
-        amount: baseTotal + (tipMethod == method ? tip : 0),
+        amount: baseTotal,
         tipAmount: tip,
         tipMethod: tipMethod,
       ),
     ];
   }
 
-  List<PaymentRecord> _buildIndividualPayments(OrderProvider order) {
-    final withItems = _dinersWithItems(order);
+  List<PaymentRecord> _buildIndividualDinerPayments(
+    OrderProvider order,
+    int diner,
+  ) {
+    final dinerItems = order.allItems.where((i) => i.diner == diner).toList();
+    final dinerTotal = dinerItems.fold(0.0, (s, i) => s + i.price);
+    final dinerTip = _individualTipForDiner(order, diner, dinerTotal);
+    final method = _dinerMethods[diner] ?? 'efectivo';
+    final tipMethod = _tipScope == 'global'
+        ? _paymentFromKey(_tipGlobalMethod)
+        : _paymentFromKey(_dinerTipMethods[diner] ?? 'efectivo');
     final records = <PaymentRecord>[];
-    for (final diner in withItems) {
-      final dinerItems = order.allItems.where((i) => i.diner == diner).toList();
-      final dinerTotal = dinerItems.fold(0.0, (s, i) => s + i.price);
-      final dinerTip = _individualTipForDiner(order, diner, dinerTotal);
-      final method = _dinerMethods[diner] ?? 'efectivo';
-      final tipMethod = _tipScope == 'global'
-          ? _paymentFromKey(_tipGlobalMethod)
-          : _paymentFromKey(_dinerTipMethods[diner] ?? 'efectivo');
 
-      if (method == 'mixto') {
-        final cashInput = _parseAmount(_dinerCashCtrls[diner]!).clamp(
-          0,
-          dinerTotal,
-        );
-        final cashBase = cashInput.toDouble();
-        final cardBase = (dinerTotal - cashBase).clamp(0, dinerTotal).toDouble();
-        records.add(
-          PaymentRecord(
-            diner: diner,
-            method: PaymentMethod.efectivo,
-            amount: cashBase + (tipMethod == PaymentMethod.efectivo ? dinerTip : 0),
-            tipAmount: tipMethod == PaymentMethod.efectivo ? dinerTip : 0,
-            tipMethod: tipMethod == PaymentMethod.efectivo ? tipMethod : null,
-          ),
-        );
-        records.add(
-          PaymentRecord(
-            diner: diner,
-            method: PaymentMethod.tarjeta,
-            amount: cardBase + (tipMethod == PaymentMethod.tarjeta ? dinerTip : 0),
-            tipAmount: tipMethod == PaymentMethod.tarjeta ? dinerTip : 0,
-            tipMethod: tipMethod == PaymentMethod.tarjeta ? tipMethod : null,
-          ),
-        );
-      } else {
-        final paymentMethod = _paymentFromKey(method);
-        records.add(
-          PaymentRecord(
-            diner: diner,
-            method: paymentMethod,
-            amount: dinerTotal + (tipMethod == paymentMethod ? dinerTip : 0),
-            tipAmount: dinerTip,
-            tipMethod: tipMethod,
-          ),
-        );
-      }
+    if (method == 'mixto') {
+      final cashInput = _parseAmount(_dinerCashCtrls[diner]!).clamp(
+        0,
+        dinerTotal,
+      );
+      final cashBase = cashInput.toDouble();
+      final cardBase = (dinerTotal - cashBase).clamp(0, dinerTotal).toDouble();
+      records.add(
+        PaymentRecord(
+          diner: diner,
+          method: PaymentMethod.efectivo,
+          amount: cashBase,
+          tipAmount: tipMethod == PaymentMethod.efectivo ? dinerTip : 0,
+          tipMethod: tipMethod == PaymentMethod.efectivo ? tipMethod : null,
+        ),
+      );
+      records.add(
+        PaymentRecord(
+          diner: diner,
+          method: PaymentMethod.tarjeta,
+          amount: cardBase,
+          tipAmount: tipMethod == PaymentMethod.tarjeta ? dinerTip : 0,
+          tipMethod: tipMethod == PaymentMethod.tarjeta ? tipMethod : null,
+        ),
+      );
+    } else {
+      final paymentMethod = _paymentFromKey(method);
+      records.add(
+        PaymentRecord(
+          diner: diner,
+          method: paymentMethod,
+          amount: dinerTotal,
+          tipAmount: dinerTip,
+          tipMethod: tipMethod,
+        ),
+      );
     }
+
+    return records.where((p) => p.amount > 0).toList();
+  }
+
+  List<PaymentRecord> _buildIndividualPayments(OrderProvider order) {
+    return _dinersWithItems(order)
+        .expand((diner) => _buildIndividualDinerPayments(order, diner))
+        .toList();
+  }
+
+  List<PaymentRecord> _buildEquitativoDinerPayments(
+    OrderProvider order,
+    int diner,
+    double basePerDiner,
+  ) {
+    final dinerTip = _equitativoTipForDiner(order, diner, basePerDiner);
+    final method = _eqDinerMethods[diner] ?? 'efectivo';
+    final tipMethod = _tipScope == 'global'
+        ? _paymentFromKey(_tipGlobalMethod)
+        : _paymentFromKey(_eqDinerTipMethods[diner] ?? 'efectivo');
+    final records = <PaymentRecord>[];
+
+    if (method == 'mixto') {
+      final cashInput = _parseAmount(_eqDinerCashCtrls[diner]!).clamp(
+        0,
+        basePerDiner,
+      );
+      final cashBase = cashInput.toDouble();
+      final cardBase =
+          (basePerDiner - cashBase).clamp(0, basePerDiner).toDouble();
+      records.add(
+        PaymentRecord(
+          diner: diner,
+          method: PaymentMethod.efectivo,
+          amount: cashBase,
+          tipAmount: tipMethod == PaymentMethod.efectivo ? dinerTip : 0,
+          tipMethod: tipMethod == PaymentMethod.efectivo ? tipMethod : null,
+        ),
+      );
+      records.add(
+        PaymentRecord(
+          diner: diner,
+          method: PaymentMethod.tarjeta,
+          amount: cardBase,
+          tipAmount: tipMethod == PaymentMethod.tarjeta ? dinerTip : 0,
+          tipMethod: tipMethod == PaymentMethod.tarjeta ? tipMethod : null,
+        ),
+      );
+    } else {
+      final paymentMethod = _paymentFromKey(method);
+      records.add(
+        PaymentRecord(
+          diner: diner,
+          method: paymentMethod,
+          amount: basePerDiner,
+          tipAmount: dinerTip,
+          tipMethod: tipMethod,
+        ),
+      );
+    }
+
     return records.where((p) => p.amount > 0).toList();
   }
 
   List<PaymentRecord> _buildEquitativoPayments(OrderProvider order) {
-    final basePerDiner = order.diners > 0
-        ? order.grandTotal / order.diners
-        : 0.0;
-    final records = <PaymentRecord>[];
-    for (final diner in List.generate(order.diners, (i) => i + 1)) {
-      final dinerTip = _equitativoTipForDiner(order, diner, basePerDiner);
-      final method = _eqDinerMethods[diner] ?? 'efectivo';
-      final tipMethod = _tipScope == 'global'
-          ? _paymentFromKey(_tipGlobalMethod)
-          : _paymentFromKey(_eqDinerTipMethods[diner] ?? 'efectivo');
-
-      if (method == 'mixto') {
-        final cashInput = _parseAmount(_eqDinerCashCtrls[diner]!).clamp(
-          0,
-          basePerDiner,
-        );
-        final cashBase = cashInput.toDouble();
-        final cardBase = (basePerDiner - cashBase)
-            .clamp(0, basePerDiner)
-            .toDouble();
-        records.add(
-          PaymentRecord(
-            diner: diner,
-            method: PaymentMethod.efectivo,
-            amount: cashBase + (tipMethod == PaymentMethod.efectivo ? dinerTip : 0),
-            tipAmount: tipMethod == PaymentMethod.efectivo ? dinerTip : 0,
-            tipMethod: tipMethod == PaymentMethod.efectivo ? tipMethod : null,
-          ),
-        );
-        records.add(
-          PaymentRecord(
-            diner: diner,
-            method: PaymentMethod.tarjeta,
-            amount: cardBase + (tipMethod == PaymentMethod.tarjeta ? dinerTip : 0),
-            tipAmount: tipMethod == PaymentMethod.tarjeta ? dinerTip : 0,
-            tipMethod: tipMethod == PaymentMethod.tarjeta ? tipMethod : null,
-          ),
-        );
-      } else {
-        final paymentMethod = _paymentFromKey(method);
-        records.add(
-          PaymentRecord(
-            diner: diner,
-            method: paymentMethod,
-            amount: basePerDiner + (tipMethod == paymentMethod ? dinerTip : 0),
-            tipAmount: dinerTip,
-            tipMethod: tipMethod,
-          ),
-        );
-      }
-    }
-    return records.where((p) => p.amount > 0).toList();
+    final basePerDiner =
+        order.diners > 0 ? order.grandTotal / order.diners : 0.0;
+    return List.generate(order.diners, (i) => i + 1)
+        .expand(
+          (diner) => _buildEquitativoDinerPayments(order, diner, basePerDiner),
+        )
+        .toList();
   }
 
   void _showError(BuildContext context, Object error) {
@@ -864,15 +896,20 @@ class _PaymentSheetState extends State<_PaymentSheet> {
     int? totalComensalesEq,
     double tipAmount = 0,
     String? equitativoMethod,
+    int? folio,
     // pago mixto
     double? cashPart,
     double? cardPart,
   }) async {
+    await order.refreshCommission();
+
     final pdf = pw.Document();
     final now = DateTime.now();
     final date =
         '${now.day.toString().padLeft(2, '0')}/${now.month.toString().padLeft(2, '0')}/${now.year}  '
         '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+    final folioLabel =
+        folio != null ? '#$folio' : '#${now.millisecondsSinceEpoch}';
 
     // Construir línea(s) de pago
     List<pw.Widget> _payRows({
@@ -932,8 +969,8 @@ class _PaymentSheetState extends State<_PaymentSheet> {
       final method = equitativoMethod == 'tarjeta'
           ? 'Tarjeta'
           : equitativoMethod == 'mixto'
-          ? 'Mixto'
-          : 'Efectivo';
+              ? 'Mixto'
+              : 'Efectivo';
       final eqCash = method == 'Mixto' ? cashPart : null;
       final eqCard = method == 'Mixto' ? cardPart : null;
 
@@ -951,7 +988,7 @@ class _PaymentSheetState extends State<_PaymentSheet> {
                   fontWeight: pw.FontWeight.bold,
                 ),
               ),
-              pw.Text('Restaurante Asiático', style: pw.TextStyle(fontSize: 9)),
+              pw.Text(order.receiptHeader, style: pw.TextStyle(fontSize: 9)),
               pw.SizedBox(height: 6),
               pw.Divider(),
               pw.Row(
@@ -962,6 +999,16 @@ class _PaymentSheetState extends State<_PaymentSheet> {
                     style: pw.TextStyle(fontSize: 10),
                   ),
                   pw.Text(date, style: pw.TextStyle(fontSize: 8)),
+                ],
+              ),
+              pw.SizedBox(height: 2),
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Text('Folio $folioLabel',
+                      style: pw.TextStyle(fontSize: 8)),
+                  pw.Text('Mesero: ${order.waiterName}',
+                      style: pw.TextStyle(fontSize: 8)),
                 ],
               ),
               if (equitativoComensalNum != null) ...[
@@ -992,19 +1039,6 @@ class _PaymentSheetState extends State<_PaymentSheet> {
                   ),
                 ],
               ),
-              if (tipAmount > 0) ...[
-                pw.SizedBox(height: 4),
-                pw.Row(
-                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                  children: [
-                    pw.Text('Propina:', style: pw.TextStyle(fontSize: 9)),
-                    pw.Text(
-                      '\$${tipAmount.toStringAsFixed(2)}',
-                      style: pw.TextStyle(fontSize: 9),
-                    ),
-                  ],
-                ),
-              ],
               pw.SizedBox(height: 6),
               pw.Divider(thickness: 1.5),
               pw.Row(
@@ -1018,7 +1052,7 @@ class _PaymentSheetState extends State<_PaymentSheet> {
                     ),
                   ),
                   pw.Text(
-                    '\$${montoEquitativo.toStringAsFixed(2)}',
+                    '\$${(montoEquitativo - tipAmount).clamp(0, montoEquitativo).toStringAsFixed(2)}',
                     style: pw.TextStyle(
                       fontSize: 13,
                       fontWeight: pw.FontWeight.bold,
@@ -1030,15 +1064,11 @@ class _PaymentSheetState extends State<_PaymentSheet> {
               ..._payRows(cash: eqCash, card: eqCard, singleMethod: method),
               pw.SizedBox(height: 10),
               pw.Text(
-                '¡Gracias por su visita!',
+                order.receiptFooter,
                 style: pw.TextStyle(
                   fontSize: 11,
                   fontWeight: pw.FontWeight.bold,
                 ),
-              ),
-              pw.Text(
-                'Esperamos verle pronto',
-                style: pw.TextStyle(fontSize: 8),
               ),
             ],
           ),
@@ -1051,8 +1081,7 @@ class _PaymentSheetState extends State<_PaymentSheet> {
           ? order.allItems.where((i) => i.diner == soloComensalNum).toList()
           : order.allItems;
       final itemsTotal = items.fold(0.0, (s, i) => s + i.price);
-      final effectiveTip = tipAmount;
-      final total = itemsTotal + effectiveTip;
+      final total = itemsTotal;
 
       String singleMethod;
       double? pdfCash = cashPart;
@@ -1063,8 +1092,8 @@ class _PaymentSheetState extends State<_PaymentSheet> {
         singleMethod = m == 'tarjeta'
             ? 'Tarjeta'
             : m == 'mixto'
-            ? 'Mixto'
-            : 'Efectivo';
+                ? 'Mixto'
+                : 'Efectivo';
         if (m == 'mixto') {
           pdfCash = _parseAmount(_dinerCashCtrls[soloComensalNum]!);
           pdfCard = total - pdfCash;
@@ -1076,8 +1105,8 @@ class _PaymentSheetState extends State<_PaymentSheet> {
         singleMethod = _method == 'tarjeta'
             ? 'Tarjeta'
             : _method == 'mixto'
-            ? 'Mixto'
-            : 'Efectivo';
+                ? 'Mixto'
+                : 'Efectivo';
       }
 
       pdf.addPage(
@@ -1094,7 +1123,7 @@ class _PaymentSheetState extends State<_PaymentSheet> {
                   fontWeight: pw.FontWeight.bold,
                 ),
               ),
-              pw.Text('Restaurante Asiático', style: pw.TextStyle(fontSize: 9)),
+              pw.Text(order.receiptHeader, style: pw.TextStyle(fontSize: 9)),
               pw.SizedBox(height: 6),
               pw.Divider(),
               pw.Row(
@@ -1107,6 +1136,16 @@ class _PaymentSheetState extends State<_PaymentSheet> {
                     style: pw.TextStyle(fontSize: 10),
                   ),
                   pw.Text(date, style: pw.TextStyle(fontSize: 8)),
+                ],
+              ),
+              pw.SizedBox(height: 2),
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Text('Folio $folioLabel',
+                      style: pw.TextStyle(fontSize: 8)),
+                  pw.Text('Mesero: ${order.waiterName}',
+                      style: pw.TextStyle(fontSize: 8)),
                 ],
               ),
               pw.Divider(),
@@ -1155,28 +1194,6 @@ class _PaymentSheetState extends State<_PaymentSheet> {
               ),
               pw.SizedBox(height: 6),
               pw.Divider(thickness: 1.5),
-              if (effectiveTip > 0)
-                pw.Row(
-                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                  children: [
-                    pw.Text('SUBTOTAL', style: pw.TextStyle(fontSize: 9)),
-                    pw.Text(
-                      '\$${itemsTotal.toStringAsFixed(2)}',
-                      style: pw.TextStyle(fontSize: 9),
-                    ),
-                  ],
-                ),
-              if (effectiveTip > 0)
-                pw.Row(
-                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                  children: [
-                    pw.Text('PROPINA', style: pw.TextStyle(fontSize: 9)),
-                    pw.Text(
-                      '\$${effectiveTip.toStringAsFixed(2)}',
-                      style: pw.TextStyle(fontSize: 9),
-                    ),
-                  ],
-                ),
               pw.Row(
                 mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                 children: [
@@ -1204,15 +1221,11 @@ class _PaymentSheetState extends State<_PaymentSheet> {
               ),
               pw.SizedBox(height: 10),
               pw.Text(
-                '¡Gracias por su visita!',
+                order.receiptFooter,
                 style: pw.TextStyle(
                   fontSize: 11,
                   fontWeight: pw.FontWeight.bold,
                 ),
-              ),
-              pw.Text(
-                'Esperamos verle pronto',
-                style: pw.TextStyle(fontSize: 8),
               ),
             ],
           ),
@@ -1227,18 +1240,19 @@ class _PaymentSheetState extends State<_PaymentSheet> {
 
   void _confirmTotal(BuildContext context, OrderProvider order) {
     final tip = _globalTip(order);
-    final total = order.grandTotal + tip;
+    final productTotal = order.grandTotal;
+    final total = productTotal + tip;
     final isMixto = _method == 'mixto';
     final cash = isMixto ? _parseAmount(_cashCtrl) : null;
-    final card = isMixto ? _cardAmount(total, cash!) : null;
+    final card = isMixto ? _cardAmount(productTotal, cash!) : null;
 
     final bodyText = isMixto
         ? 'Total: \$${total.toStringAsFixed(2)}\n'
-              '${tip > 0 ? 'Propina: \$${tip.toStringAsFixed(2)}\n' : ''}'
-              'Efectivo: \$${cash!.toStringAsFixed(2)}\nTarjeta: \$${card!.toStringAsFixed(2)}'
+            '${tip > 0 ? 'Propina: \$${tip.toStringAsFixed(2)}\n' : ''}'
+            'Productos efectivo: \$${cash!.toStringAsFixed(2)}\nProductos tarjeta: \$${card!.toStringAsFixed(2)}'
         : 'Total: \$${total.toStringAsFixed(2)}\n'
-              '${tip > 0 ? 'Propina: \$${tip.toStringAsFixed(2)}\n' : ''}'
-              'Método: ${_method == 'tarjeta' ? 'Tarjeta' : 'Efectivo'}';
+            '${tip > 0 ? 'Propina: \$${tip.toStringAsFixed(2)}\n' : ''}'
+            'Método: ${_method == 'tarjeta' ? 'Tarjeta' : 'Efectivo'}';
 
     _confirmTipAmount(
       context: context,
@@ -1260,14 +1274,15 @@ class _PaymentSheetState extends State<_PaymentSheet> {
                 if (order.currentTable != null) {
                   order.updateTip(order.currentTable!, tip);
                 }
-                await order.registrarVenta(
+                final ventaId = await order.registrarVenta(
                   mode: ChargeMode.total,
-                  payments: _buildTotalPayments(total, tip, cash, card),
+                  payments: _buildTotalPayments(total, tip, cash),
                   totalCuenta: order.grandTotal,
                 );
                 await _generateTicket(
                   order,
                   tipAmount: tip,
+                  folio: ventaId,
                   cashPart: cash,
                   cardPart: card,
                 );
@@ -1290,28 +1305,27 @@ class _PaymentSheetState extends State<_PaymentSheet> {
     OrderProvider order,
     int dinerNum,
   ) {
-    final basePerDiner = order.diners > 0
-        ? order.grandTotal / order.diners
-        : 0.0;
+    final basePerDiner =
+        order.diners > 0 ? order.grandTotal / order.diners : 0.0;
     final dinerTip = _equitativoTipForDiner(order, dinerNum, basePerDiner);
     final monto = basePerDiner + dinerTip;
     final method = _eqDinerMethods[dinerNum] ?? 'efectivo';
     final cashCtrl = _eqDinerCashCtrls[dinerNum]!;
     final cash = method == 'mixto' ? _parseAmount(cashCtrl) : null;
-    final card = method == 'mixto' ? _cardAmount(monto, cash!) : null;
+    final card = method == 'mixto' ? _cardAmount(basePerDiner, cash!) : null;
     final methodLabel = method == 'tarjeta'
         ? 'Tarjeta'
         : method == 'mixto'
-        ? 'Mixto'
-        : 'Efectivo';
+            ? 'Mixto'
+            : 'Efectivo';
 
     final bodyText = method == 'mixto'
         ? 'Comensal $dinerNum\nTotal: \$${monto.toStringAsFixed(2)}\n'
-              '${dinerTip > 0 ? 'Propina: \$${dinerTip.toStringAsFixed(2)}\n' : ''}'
-              'Efectivo: \$${cash!.toStringAsFixed(2)}\nTarjeta: \$${card!.toStringAsFixed(2)}'
+            '${dinerTip > 0 ? 'Propina: \$${dinerTip.toStringAsFixed(2)}\n' : ''}'
+            'Productos efectivo: \$${cash!.toStringAsFixed(2)}\nProductos tarjeta: \$${card!.toStringAsFixed(2)}'
         : 'Comensal $dinerNum\nTotal: \$${monto.toStringAsFixed(2)}\n'
-              '${dinerTip > 0 ? 'Propina: \$${dinerTip.toStringAsFixed(2)}\n' : ''}'
-              'Método: $methodLabel';
+            '${dinerTip > 0 ? 'Propina: \$${dinerTip.toStringAsFixed(2)}\n' : ''}'
+            'Método: $methodLabel';
 
     _confirmTipAmount(
       context: context,
@@ -1327,25 +1341,43 @@ class _PaymentSheetState extends State<_PaymentSheet> {
             confirmLabel: 'PAGADO E IMPRIMIR',
             onConfirm: () async {
               Navigator.pop(context);
-              if (order.currentTable != null) {
-                final totalTip =
-                    _totalWithTipsForMode(order) - order.grandTotal;
-                order.updateTip(order.currentTable!, totalTip);
+              if (_isClosingSale) return;
+              setState(() => _isClosingSale = true);
+              try {
+                final ventaId = await _ensureVentaIniciada(
+                  order,
+                  ChargeMode.equitativo,
+                );
+                await order.registrarPagosVenta(
+                  ventaId,
+                  _buildEquitativoDinerPayments(order, dinerNum, basePerDiner),
+                );
+                if (mounted) {
+                  setState(() {
+                    _paidEqDiners.add(dinerNum);
+                  });
+                }
+                if (order.currentTable != null) {
+                  final totalTip =
+                      _totalWithTipsForMode(order) - order.grandTotal;
+                  order.updateTip(order.currentTable!, totalTip);
+                }
+                await _generateTicket(
+                  order,
+                  equitativoComensalNum: dinerNum,
+                  montoEquitativo: monto,
+                  totalComensalesEq: order.diners,
+                  tipAmount: dinerTip,
+                  equitativoMethod: method,
+                  folio: ventaId,
+                  cashPart: cash,
+                  cardPart: card,
+                );
+              } catch (e) {
+                if (context.mounted) _showError(context, e);
+              } finally {
+                if (mounted) setState(() => _isClosingSale = false);
               }
-              await _generateTicket(
-                order,
-                equitativoComensalNum: dinerNum,
-                montoEquitativo: monto,
-                totalComensalesEq: order.diners,
-                tipAmount: dinerTip,
-                equitativoMethod: method,
-                cashPart: cash,
-                cardPart: card,
-              );
-              if (!mounted) return;
-              setState(() {
-                _paidEqDiners.add(dinerNum);
-              });
             },
           ),
         );
@@ -1354,23 +1386,22 @@ class _PaymentSheetState extends State<_PaymentSheet> {
   }
 
   void _confirmDiner(BuildContext context, OrderProvider order, int dinerNum) {
-    final dinerItems = order.allItems
-        .where((i) => i.diner == dinerNum)
-        .toList();
+    final dinerItems =
+        order.allItems.where((i) => i.diner == dinerNum).toList();
     final dinerTotal = dinerItems.fold(0.0, (s, i) => s + i.price);
     final dinerTip = _individualTipForDiner(order, dinerNum, dinerTotal);
     final totalToPay = dinerTotal + dinerTip;
     final method = _dinerMethods[dinerNum] ?? 'efectivo';
     final cashCtrl = _dinerCashCtrls[dinerNum]!;
     final cash = method == 'mixto' ? _parseAmount(cashCtrl) : null;
-    final card = method == 'mixto' ? _cardAmount(totalToPay, cash!) : null;
+    final card = method == 'mixto' ? _cardAmount(dinerTotal, cash!) : null;
     final bodyText = method == 'mixto'
         ? 'Total: \$${totalToPay.toStringAsFixed(2)}\n'
-              '${dinerTip > 0 ? 'Propina: \$${dinerTip.toStringAsFixed(2)}\n' : ''}'
-              'Efectivo: \$${cash!.toStringAsFixed(2)}\nTarjeta: \$${card!.toStringAsFixed(2)}'
+            '${dinerTip > 0 ? 'Propina: \$${dinerTip.toStringAsFixed(2)}\n' : ''}'
+            'Productos efectivo: \$${cash!.toStringAsFixed(2)}\nProductos tarjeta: \$${card!.toStringAsFixed(2)}'
         : 'Total: \$${totalToPay.toStringAsFixed(2)}\n'
-              '${dinerTip > 0 ? 'Propina: \$${dinerTip.toStringAsFixed(2)}\n' : ''}'
-              'Método: ${method == 'tarjeta' ? 'Tarjeta' : 'Efectivo'}';
+            '${dinerTip > 0 ? 'Propina: \$${dinerTip.toStringAsFixed(2)}\n' : ''}'
+            'Método: ${method == 'tarjeta' ? 'Tarjeta' : 'Efectivo'}';
 
     _confirmTipAmount(
       context: context,
@@ -1386,22 +1417,40 @@ class _PaymentSheetState extends State<_PaymentSheet> {
             confirmLabel: 'PAGADO E IMPRIMIR',
             onConfirm: () async {
               Navigator.pop(context);
-              if (order.currentTable != null) {
-                final totalTip =
-                    _totalWithTipsForMode(order) - order.grandTotal;
-                order.updateTip(order.currentTable!, totalTip);
+              if (_isClosingSale) return;
+              setState(() => _isClosingSale = true);
+              try {
+                final ventaId = await _ensureVentaIniciada(
+                  order,
+                  ChargeMode.porPersona,
+                );
+                await order.registrarPagosVenta(
+                  ventaId,
+                  _buildIndividualDinerPayments(order, dinerNum),
+                );
+                if (mounted) {
+                  setState(() {
+                    _paidDiners.add(dinerNum);
+                  });
+                }
+                if (order.currentTable != null) {
+                  final totalTip =
+                      _totalWithTipsForMode(order) - order.grandTotal;
+                  order.updateTip(order.currentTable!, totalTip);
+                }
+                await _generateTicket(
+                  order,
+                  soloComensalNum: dinerNum,
+                  tipAmount: dinerTip,
+                  folio: ventaId,
+                  cashPart: cash,
+                  cardPart: card,
+                );
+              } catch (e) {
+                if (context.mounted) _showError(context, e);
+              } finally {
+                if (mounted) setState(() => _isClosingSale = false);
               }
-              await _generateTicket(
-                order,
-                soloComensalNum: dinerNum,
-                tipAmount: dinerTip,
-                cashPart: cash,
-                cardPart: card,
-              );
-              if (!mounted) return;
-              setState(() {
-                _paidDiners.add(dinerNum);
-              });
             },
           ),
         );
@@ -1426,9 +1475,9 @@ class _PaymentSheetState extends State<_PaymentSheet> {
       _eqDinerTipCardModes.clear();
     }
     if (onlyTotalMode) _tipScope = 'global';
-    final tip = (_mode == 'total' || _tipScope == 'global')
-        ? _globalTip(order)
-        : 0.0;
+    final ventaIniciada = _activeVentaId != null;
+    final tip =
+        (_mode == 'total' || _tipScope == 'global') ? _globalTip(order) : 0.0;
     final totalWithTip = _totalWithTipsForMode(order);
     final eqPerDiner = totalWithTip / (order.diners > 0 ? order.diners : 1);
     final eqBasePerDiner =
@@ -1515,6 +1564,7 @@ class _PaymentSheetState extends State<_PaymentSheet> {
                       icon: Icons.public_outlined,
                       selected: _tipScope == 'global',
                       onTap: () => setState(() {
+                        if (ventaIniciada) return;
                         _tipScope = 'global';
                         _dinerTipCtrls.clear();
                         _eqDinerTipCtrls.clear();
@@ -1527,7 +1577,10 @@ class _PaymentSheetState extends State<_PaymentSheet> {
                       label: 'Por comensal',
                       icon: Icons.person_outline,
                       selected: _tipScope == 'per_diner',
-                      onTap: () => setState(() => _tipScope = 'per_diner'),
+                      onTap: () => setState(() {
+                        if (ventaIniciada) return;
+                        _tipScope = 'per_diner';
+                      }),
                     ),
                   ),
                 ],
@@ -1544,8 +1597,10 @@ class _PaymentSheetState extends State<_PaymentSheet> {
                           icon: Icons.payments_outlined,
                           label: 'Propina efectivo',
                           selected: _tipGlobalMethod == 'efectivo',
-                          onTap: () =>
-                              setState(() => _tipGlobalMethod = 'efectivo'),
+                          onTap: () => setState(() {
+                            if (ventaIniciada) return;
+                            _tipGlobalMethod = 'efectivo';
+                          }),
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -1555,6 +1610,7 @@ class _PaymentSheetState extends State<_PaymentSheet> {
                           label: 'Propina tarjeta',
                           selected: _tipGlobalMethod == 'tarjeta',
                           onTap: () => setState(() {
+                            if (ventaIniciada) return;
                             _tipGlobalMethod = 'tarjeta';
                             _tipGlobalCardMode = 'amount';
                           }),
@@ -1571,8 +1627,10 @@ class _PaymentSheetState extends State<_PaymentSheet> {
                             icon: Icons.attach_money,
                             label: 'Cantidad',
                             selected: _tipGlobalCardMode == 'amount',
-                            onTap: () =>
-                                setState(() => _tipGlobalCardMode = 'amount'),
+                            onTap: () => setState(() {
+                              if (ventaIniciada) return;
+                              _tipGlobalCardMode = 'amount';
+                            }),
                           ),
                         ),
                         const SizedBox(width: 8),
@@ -1581,8 +1639,10 @@ class _PaymentSheetState extends State<_PaymentSheet> {
                             icon: Icons.percent,
                             label: 'Porcentaje',
                             selected: _tipGlobalCardMode == 'percent',
-                            onTap: () =>
-                                setState(() => _tipGlobalCardMode = 'percent'),
+                            onTap: () => setState(() {
+                              if (ventaIniciada) return;
+                              _tipGlobalCardMode = 'percent';
+                            }),
                           ),
                         ),
                       ],
@@ -1591,6 +1651,7 @@ class _PaymentSheetState extends State<_PaymentSheet> {
                   const SizedBox(height: 10),
                   TextField(
                     controller: _tipGlobalCtrl,
+                    enabled: !ventaIniciada,
                     onChanged: (_) => setState(() {}),
                     keyboardType: const TextInputType.numberWithOptions(
                       decimal: true,
@@ -1613,28 +1674,25 @@ class _PaymentSheetState extends State<_PaymentSheet> {
                     decoration: InputDecoration(
                       hintText: _tipGlobalMethod == 'tarjeta'
                           ? (_tipGlobalCardMode == 'percent'
-                                ? 'Porcentaje'
-                                : 'Cantidad')
+                              ? 'Porcentaje'
+                              : 'Cantidad')
                           : 'Cantidad',
                       hintStyle: const TextStyle(
                         color: AppColors.textMuted,
                         fontSize: 13,
                       ),
-                      prefixText:
-                          _tipGlobalMethod == 'tarjeta' &&
+                      prefixText: _tipGlobalMethod == 'tarjeta' &&
                               _tipGlobalCardMode == 'percent'
                           ? null
                           : '\$  ',
-                      prefixStyle:
-                          _tipGlobalMethod == 'tarjeta' &&
+                      prefixStyle: _tipGlobalMethod == 'tarjeta' &&
                               _tipGlobalCardMode == 'percent'
                           ? null
                           : const TextStyle(
                               color: AppColors.gold,
                               fontSize: 15,
                             ),
-                      suffixText:
-                          _tipGlobalMethod == 'tarjeta' &&
+                      suffixText: _tipGlobalMethod == 'tarjeta' &&
                               _tipGlobalCardMode == 'percent'
                           ? '%'
                           : null,
@@ -1697,6 +1755,7 @@ class _PaymentSheetState extends State<_PaymentSheet> {
                 icon: Icons.receipt_long_outlined,
                 selected: true,
                 onTap: () => setState(() {
+                  if (ventaIniciada) return;
                   _mode = 'total';
                   _dinerMethods.clear();
                   _paidDiners.clear();
@@ -1717,6 +1776,7 @@ class _PaymentSheetState extends State<_PaymentSheet> {
                       icon: Icons.receipt_long_outlined,
                       selected: _mode == 'total',
                       onTap: () => setState(() {
+                        if (ventaIniciada) return;
                         _mode = 'total';
                         _dinerMethods.clear();
                         _paidDiners.clear();
@@ -1736,6 +1796,7 @@ class _PaymentSheetState extends State<_PaymentSheet> {
                       icon: Icons.people_outline,
                       selected: _mode == 'individual',
                       onTap: () => setState(() {
+                        if (ventaIniciada) return;
                         _mode = 'individual';
                         _method = null;
                         _eqDinerMethods.clear();
@@ -1749,12 +1810,12 @@ class _PaymentSheetState extends State<_PaymentSheet> {
               ),
               const SizedBox(height: 10),
               _ModeChip(
-                label:
-                    'Dividir equitativamente  ·  '
+                label: 'Dividir equitativamente  ·  '
                     '\$${(totalWithTip / (order.diners > 0 ? order.diners : 1)).toStringAsFixed(2)} c/u',
                 icon: Icons.call_split_outlined,
                 selected: _mode == 'equitativo',
                 onTap: () => setState(() {
+                  if (ventaIniciada) return;
                   _mode = 'equitativo';
                   _method = null;
                   _eqDinerMethods.clear();
@@ -1825,7 +1886,7 @@ class _PaymentSheetState extends State<_PaymentSheet> {
               if (_method == 'mixto') ...[
                 const SizedBox(height: 16),
                 _MixtoPanel(
-                  total: totalWithTip,
+                  total: order.grandTotal,
                   cashCtrl: _cashCtrl,
                   onChanged: () => setState(() {}),
                 ),
@@ -1833,11 +1894,12 @@ class _PaymentSheetState extends State<_PaymentSheet> {
 
               const SizedBox(height: 20),
               GestureDetector(
-                onTap: !_isClosingSale && _canConfirmTotal(totalWithTip)
+                onTap: !_isClosingSale && _canConfirmTotal(order.grandTotal)
                     ? () => _confirmTotal(context, order)
                     : null,
                 child: _buildPayBtn(
-                  enabled: !_isClosingSale && _canConfirmTotal(totalWithTip),
+                  enabled:
+                      !_isClosingSale && _canConfirmTotal(order.grandTotal),
                 ),
               ),
             ],
@@ -1944,15 +2006,14 @@ class _PaymentSheetState extends State<_PaymentSheet> {
                     context,
                     order,
                     i + 1,
-                    eqPerDiner,
+                    eqBasePerDiner,
                   ),
                 ),
               ),
 
               Builder(
                 builder: (ctx) {
-                  final allPaid =
-                      order.diners > 0 &&
+                  final allPaid = order.diners > 0 &&
                       List.generate(
                         order.diners,
                         (i) => i + 1,
@@ -1966,18 +2027,25 @@ class _PaymentSheetState extends State<_PaymentSheet> {
                           : () async {
                               setState(() => _isClosingSale = true);
                               try {
-                                await order.registrarVenta(
-                                  mode: ChargeMode.equitativo,
-                                  payments: _buildEquitativoPayments(order),
-                                  totalCuenta: order.grandTotal,
-                                );
+                                final ventaId = _activeVentaId;
+                                if (ventaId == null) {
+                                  await order.registrarVenta(
+                                    mode: ChargeMode.equitativo,
+                                    payments: _buildEquitativoPayments(order),
+                                    totalCuenta: order.grandTotal,
+                                  );
+                                } else {
+                                  await order.cerrarVentaRegistrada(ventaId);
+                                }
+                                _activeVentaId = null;
                                 order.clearOrder();
                                 if (ctx.mounted) Navigator.pop(ctx);
                               } catch (e) {
                                 if (ctx.mounted) _showError(ctx, e);
                               } finally {
-                                if (mounted)
+                                if (mounted) {
                                   setState(() => _isClosingSale = false);
+                                }
                               }
                             },
                       child: Container(
@@ -2049,8 +2117,7 @@ class _PaymentSheetState extends State<_PaymentSheet> {
                         (d) => order.allItems.any((item) => item.diner == d),
                       )
                       .toList();
-                  final allPaid =
-                      withItems.isNotEmpty &&
+                  final allPaid = withItems.isNotEmpty &&
                       withItems.every((d) => _paidDiners.contains(d));
                   if (!allPaid) return const SizedBox.shrink();
                   return Padding(
@@ -2061,18 +2128,25 @@ class _PaymentSheetState extends State<_PaymentSheet> {
                           : () async {
                               setState(() => _isClosingSale = true);
                               try {
-                                await order.registrarVenta(
-                                  mode: ChargeMode.porPersona,
-                                  payments: _buildIndividualPayments(order),
-                                  totalCuenta: order.grandTotal,
-                                );
+                                final ventaId = _activeVentaId;
+                                if (ventaId == null) {
+                                  await order.registrarVenta(
+                                    mode: ChargeMode.porPersona,
+                                    payments: _buildIndividualPayments(order),
+                                    totalCuenta: order.grandTotal,
+                                  );
+                                } else {
+                                  await order.cerrarVentaRegistrada(ventaId);
+                                }
+                                _activeVentaId = null;
                                 order.clearOrder();
                                 if (context.mounted) Navigator.pop(context);
                               } catch (e) {
                                 if (context.mounted) _showError(context, e);
                               } finally {
-                                if (mounted)
+                                if (mounted) {
                                   setState(() => _isClosingSale = false);
+                                }
                               }
                             },
                       child: Container(
@@ -2159,9 +2233,8 @@ class _PaymentSheetState extends State<_PaymentSheet> {
     OrderProvider order,
     int dinerNum,
   ) {
-    final dinerItems = order.allItems
-        .where((i) => i.diner == dinerNum)
-        .toList();
+    final dinerItems =
+        order.allItems.where((i) => i.diner == dinerNum).toList();
     final dinerTotal = dinerItems.fold(0.0, (s, i) => s + i.price);
     final dinerTip = _individualTipForDiner(order, dinerNum, dinerTotal);
     final totalToPay = dinerTotal + dinerTip;
@@ -2179,15 +2252,15 @@ class _PaymentSheetState extends State<_PaymentSheet> {
         color: noItems
             ? AppColors.background.withOpacity(0.4)
             : paid
-            ? AppColors.libre.withOpacity(0.06)
-            : AppColors.background,
+                ? AppColors.libre.withOpacity(0.06)
+                : AppColors.background,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
           color: noItems
               ? AppColors.surfaceElevated.withOpacity(0.4)
               : paid
-              ? AppColors.libre.withOpacity(0.4)
-              : AppColors.surfaceElevated,
+                  ? AppColors.libre.withOpacity(0.4)
+                  : AppColors.surfaceElevated,
         ),
       ),
       child: Column(
@@ -2200,14 +2273,14 @@ class _PaymentSheetState extends State<_PaymentSheet> {
                 noItems
                     ? Icons.remove_circle_outline
                     : paid
-                    ? Icons.check_circle
-                    : Icons.person_outline,
+                        ? Icons.check_circle
+                        : Icons.person_outline,
                 size: 16,
                 color: noItems
                     ? AppColors.textDisabled
                     : paid
-                    ? AppColors.libre
-                    : AppColors.textSecondary,
+                        ? AppColors.libre
+                        : AppColors.textSecondary,
               ),
               const SizedBox(width: 8),
               Text(
@@ -2218,8 +2291,8 @@ class _PaymentSheetState extends State<_PaymentSheet> {
                   color: noItems
                       ? AppColors.textDisabled
                       : paid
-                      ? AppColors.libre
-                      : AppColors.textPrimary,
+                          ? AppColors.libre
+                          : AppColors.textPrimary,
                 ),
               ),
               const Spacer(),
@@ -2275,31 +2348,32 @@ class _PaymentSheetState extends State<_PaymentSheet> {
                   ),
                 ),
                 // Botón para reabrir (arrepentirse)
-                GestureDetector(
-                  onTap: () => setState(() {
-                    _paidDiners.remove(dinerNum);
-                    _dinerMethods.remove(dinerNum);
-                    _dinerCashCtrls[dinerNum]!.clear();
-                  }),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: AppColors.surfaceElevated,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Text(
-                      'Cambiar',
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: AppColors.textSecondary,
-                        fontWeight: FontWeight.w400,
+                if (_activeVentaId == null)
+                  GestureDetector(
+                    onTap: () => setState(() {
+                      _paidDiners.remove(dinerNum);
+                      _dinerMethods.remove(dinerNum);
+                      _dinerCashCtrls[dinerNum]!.clear();
+                    }),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.surfaceElevated,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Text(
+                        'Cambiar',
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: AppColors.textSecondary,
+                          fontWeight: FontWeight.w400,
+                        ),
                       ),
                     ),
                   ),
-                ),
               ],
             ),
           ]
@@ -2354,8 +2428,7 @@ class _PaymentSheetState extends State<_PaymentSheet> {
                     child: _SmallMethodBtn(
                       icon: Icons.payments_outlined,
                       label: 'Tip efectivo',
-                      selected:
-                          (_dinerTipMethods[dinerNum] ?? 'efectivo') ==
+                      selected: (_dinerTipMethods[dinerNum] ?? 'efectivo') ==
                           'efectivo',
                       onTap: () => setState(() {
                         _dinerTipMethods[dinerNum] = 'efectivo';
@@ -2375,8 +2448,7 @@ class _PaymentSheetState extends State<_PaymentSheet> {
                     child: _SmallMethodBtn(
                       icon: Icons.credit_card_outlined,
                       label: 'Tip tarjeta',
-                      selected:
-                          (_dinerTipMethods[dinerNum] ?? 'efectivo') ==
+                      selected: (_dinerTipMethods[dinerNum] ?? 'efectivo') ==
                           'tarjeta',
                       onTap: () => setState(() {
                         _dinerTipMethods[dinerNum] = 'tarjeta';
@@ -2397,11 +2469,12 @@ class _PaymentSheetState extends State<_PaymentSheet> {
                       child: _SmallMethodBtn(
                         icon: Icons.attach_money,
                         label: 'Cantidad',
-                        selected:
-                            (_dinerTipCardModes[dinerNum] ?? 'amount') ==
+                        selected: (_dinerTipCardModes[dinerNum] ?? 'amount') ==
                             'amount',
                         onTap: () => setState(
-                          () => _dinerTipCardModes[dinerNum] = 'amount',
+                          () {
+                            _dinerTipCardModes[dinerNum] = 'amount';
+                          },
                         ),
                       ),
                     ),
@@ -2410,11 +2483,12 @@ class _PaymentSheetState extends State<_PaymentSheet> {
                       child: _SmallMethodBtn(
                         icon: Icons.percent,
                         label: 'Porcentaje',
-                        selected:
-                            (_dinerTipCardModes[dinerNum] ?? 'amount') ==
+                        selected: (_dinerTipCardModes[dinerNum] ?? 'amount') ==
                             'percent',
                         onTap: () => setState(
-                          () => _dinerTipCardModes[dinerNum] = 'percent',
+                          () {
+                            _dinerTipCardModes[dinerNum] = 'percent';
+                          },
                         ),
                       ),
                     ),
@@ -2445,11 +2519,11 @@ class _PaymentSheetState extends State<_PaymentSheet> {
                   fontWeight: FontWeight.w300,
                 ),
                 decoration: InputDecoration(
-                  hintText:
-                      (_dinerTipMethods[dinerNum] ?? 'efectivo') == 'tarjeta'
+                  hintText: (_dinerTipMethods[dinerNum] ?? 'efectivo') ==
+                          'tarjeta'
                       ? ((_dinerTipCardModes[dinerNum] ?? 'amount') == 'percent'
-                            ? 'Porcentaje'
-                            : 'Cantidad')
+                          ? 'Porcentaje'
+                          : 'Cantidad')
                       : 'Cantidad',
                   hintStyle: const TextStyle(
                     color: AppColors.textMuted,
@@ -2457,22 +2531,22 @@ class _PaymentSheetState extends State<_PaymentSheet> {
                   ),
                   prefixText:
                       (_dinerTipMethods[dinerNum] ?? 'efectivo') == 'tarjeta' &&
-                          (_dinerTipCardModes[dinerNum] ?? 'amount') ==
-                              'percent'
-                      ? null
-                      : '\$  ',
-                  prefixStyle:
-                      (_dinerTipMethods[dinerNum] ?? 'efectivo') == 'tarjeta' &&
+                              (_dinerTipCardModes[dinerNum] ?? 'amount') ==
+                                  'percent'
+                          ? null
+                          : '\$  ',
+                  prefixStyle: (_dinerTipMethods[dinerNum] ?? 'efectivo') ==
+                              'tarjeta' &&
                           (_dinerTipCardModes[dinerNum] ?? 'amount') ==
                               'percent'
                       ? null
                       : const TextStyle(color: AppColors.gold, fontSize: 13),
                   suffixText:
                       (_dinerTipMethods[dinerNum] ?? 'efectivo') == 'tarjeta' &&
-                          (_dinerTipCardModes[dinerNum] ?? 'amount') ==
-                              'percent'
-                      ? '%'
-                      : null,
+                              (_dinerTipCardModes[dinerNum] ?? 'amount') ==
+                                  'percent'
+                          ? '%'
+                          : null,
                   suffixStyle: const TextStyle(
                     color: AppColors.gold,
                     fontSize: 12,
@@ -2505,14 +2579,14 @@ class _PaymentSheetState extends State<_PaymentSheet> {
             if (method == 'mixto') ...[
               const SizedBox(height: 10),
               _MixtoPanel(
-                total: totalToPay,
+                total: dinerTotal,
                 cashCtrl: _dinerCashCtrls[dinerNum]!,
                 onChanged: () => setState(() {}),
               ),
             ],
 
             // Botón cobrar
-            if (_canConfirmDiner(dinerNum, totalToPay)) ...[
+            if (_canConfirmDiner(dinerNum, dinerTotal)) ...[
               const SizedBox(height: 10),
               GestureDetector(
                 onTap: () => _confirmDiner(context, order, dinerNum),
@@ -2575,7 +2649,7 @@ class _PaymentSheetState extends State<_PaymentSheet> {
     _eqDinerTipCtrls.putIfAbsent(dinerNum, () => TextEditingController());
     final cashCtrl = _eqDinerCashCtrls[dinerNum]!;
     final cash = method == 'mixto' ? _parseAmount(cashCtrl) : null;
-    final card = method == 'mixto' ? _cardAmount(totalToPay, cash ?? 0) : null;
+    final card = method == 'mixto' ? _cardAmount(monto, cash ?? 0) : null;
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -2634,31 +2708,32 @@ class _PaymentSheetState extends State<_PaymentSheet> {
                     ),
                   ),
                 ),
-                GestureDetector(
-                  onTap: () => setState(() {
-                    _paidEqDiners.remove(dinerNum);
-                    _eqDinerMethods.remove(dinerNum);
-                    cashCtrl.clear();
-                  }),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: AppColors.surfaceElevated,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Text(
-                      'Cambiar',
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: AppColors.textSecondary,
-                        fontWeight: FontWeight.w400,
+                if (_activeVentaId == null)
+                  GestureDetector(
+                    onTap: () => setState(() {
+                      _paidEqDiners.remove(dinerNum);
+                      _eqDinerMethods.remove(dinerNum);
+                      cashCtrl.clear();
+                    }),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.surfaceElevated,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Text(
+                        'Cambiar',
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: AppColors.textSecondary,
+                          fontWeight: FontWeight.w400,
+                        ),
                       ),
                     ),
                   ),
-                ),
               ],
             ),
           ] else ...[
@@ -2710,8 +2785,7 @@ class _PaymentSheetState extends State<_PaymentSheet> {
                     child: _SmallMethodBtn(
                       icon: Icons.payments_outlined,
                       label: 'Tip efectivo',
-                      selected:
-                          (_eqDinerTipMethods[dinerNum] ?? 'efectivo') ==
+                      selected: (_eqDinerTipMethods[dinerNum] ?? 'efectivo') ==
                           'efectivo',
                       onTap: () => setState(() {
                         _eqDinerTipMethods[dinerNum] = 'efectivo';
@@ -2731,8 +2805,7 @@ class _PaymentSheetState extends State<_PaymentSheet> {
                     child: _SmallMethodBtn(
                       icon: Icons.credit_card_outlined,
                       label: 'Tip tarjeta',
-                      selected:
-                          (_eqDinerTipMethods[dinerNum] ?? 'efectivo') ==
+                      selected: (_eqDinerTipMethods[dinerNum] ?? 'efectivo') ==
                           'tarjeta',
                       onTap: () => setState(() {
                         _eqDinerTipMethods[dinerNum] = 'tarjeta';
@@ -2756,9 +2829,11 @@ class _PaymentSheetState extends State<_PaymentSheet> {
                         label: 'Cantidad',
                         selected:
                             (_eqDinerTipCardModes[dinerNum] ?? 'amount') ==
-                            'amount',
+                                'amount',
                         onTap: () => setState(
-                          () => _eqDinerTipCardModes[dinerNum] = 'amount',
+                          () {
+                            _eqDinerTipCardModes[dinerNum] = 'amount';
+                          },
                         ),
                       ),
                     ),
@@ -2769,9 +2844,11 @@ class _PaymentSheetState extends State<_PaymentSheet> {
                         label: 'Porcentaje',
                         selected:
                             (_eqDinerTipCardModes[dinerNum] ?? 'amount') ==
-                            'percent',
+                                'percent',
                         onTap: () => setState(
-                          () => _eqDinerTipCardModes[dinerNum] = 'percent',
+                          () {
+                            _eqDinerTipCardModes[dinerNum] = 'percent';
+                          },
                         ),
                       ),
                     ),
@@ -2805,31 +2882,28 @@ class _PaymentSheetState extends State<_PaymentSheet> {
                 decoration: InputDecoration(
                   hintText:
                       (_eqDinerTipMethods[dinerNum] ?? 'efectivo') == 'tarjeta'
-                      ? ((_eqDinerTipCardModes[dinerNum] ?? 'amount') ==
-                                'percent'
-                            ? 'Porcentaje'
-                            : 'Cantidad')
-                      : 'Cantidad',
+                          ? ((_eqDinerTipCardModes[dinerNum] ?? 'amount') ==
+                                  'percent'
+                              ? 'Porcentaje'
+                              : 'Cantidad')
+                          : 'Cantidad',
                   hintStyle: const TextStyle(
                     color: AppColors.textMuted,
                     fontSize: 12,
                   ),
-                  prefixText:
-                      (_eqDinerTipMethods[dinerNum] ?? 'efectivo') ==
+                  prefixText: (_eqDinerTipMethods[dinerNum] ?? 'efectivo') ==
                               'tarjeta' &&
                           (_eqDinerTipCardModes[dinerNum] ?? 'amount') ==
                               'percent'
                       ? null
                       : '\$  ',
-                  prefixStyle:
-                      (_eqDinerTipMethods[dinerNum] ?? 'efectivo') ==
+                  prefixStyle: (_eqDinerTipMethods[dinerNum] ?? 'efectivo') ==
                               'tarjeta' &&
                           (_eqDinerTipCardModes[dinerNum] ?? 'amount') ==
                               'percent'
                       ? null
                       : const TextStyle(color: AppColors.gold, fontSize: 13),
-                  suffixText:
-                      (_eqDinerTipMethods[dinerNum] ?? 'efectivo') ==
+                  suffixText: (_eqDinerTipMethods[dinerNum] ?? 'efectivo') ==
                               'tarjeta' &&
                           (_eqDinerTipCardModes[dinerNum] ?? 'amount') ==
                               'percent'
@@ -2866,12 +2940,12 @@ class _PaymentSheetState extends State<_PaymentSheet> {
             if (method == 'mixto') ...[
               const SizedBox(height: 10),
               _MixtoPanel(
-                total: totalToPay,
+                total: monto,
                 cashCtrl: cashCtrl,
                 onChanged: () => setState(() {}),
               ),
             ],
-            if (_canConfirmEqDiner(dinerNum, totalToPay)) ...[
+            if (_canConfirmEqDiner(dinerNum, monto)) ...[
               const SizedBox(height: 10),
               GestureDetector(
                 onTap: () => _confirmEquitativoDiner(context, order, dinerNum),
@@ -2921,46 +2995,47 @@ class _PaymentSheetState extends State<_PaymentSheet> {
   }
 
   Widget _buildPayBtn({required bool enabled}) => AnimatedContainer(
-    duration: const Duration(milliseconds: 250),
-    width: double.infinity,
-    padding: const EdgeInsets.symmetric(vertical: 16),
-    decoration: BoxDecoration(
-      gradient: enabled
-          ? const LinearGradient(colors: [AppColors.gold, AppColors.goldLight])
-          : null,
-      color: enabled ? null : AppColors.surfaceElevated,
-      borderRadius: BorderRadius.circular(16),
-      boxShadow: enabled
-          ? [
-              BoxShadow(
-                color: AppColors.gold.withOpacity(0.3),
-                blurRadius: 20,
-                offset: const Offset(0, 8),
+        duration: const Duration(milliseconds: 250),
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        decoration: BoxDecoration(
+          gradient: enabled
+              ? const LinearGradient(
+                  colors: [AppColors.gold, AppColors.goldLight])
+              : null,
+          color: enabled ? null : AppColors.surfaceElevated,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: enabled
+              ? [
+                  BoxShadow(
+                    color: AppColors.gold.withOpacity(0.3),
+                    blurRadius: 20,
+                    offset: const Offset(0, 8),
+                  ),
+                ]
+              : null,
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.print_outlined,
+              size: 18,
+              color: enabled ? AppColors.background : AppColors.textDisabled,
+            ),
+            const SizedBox(width: 8),
+            Text(
+              'COBRAR E IMPRIMIR TICKET',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                letterSpacing: 1.5,
+                color: enabled ? AppColors.background : AppColors.textDisabled,
               ),
-            ]
-          : null,
-    ),
-    child: Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Icon(
-          Icons.print_outlined,
-          size: 18,
-          color: enabled ? AppColors.background : AppColors.textDisabled,
+            ),
+          ],
         ),
-        const SizedBox(width: 8),
-        Text(
-          'COBRAR E IMPRIMIR TICKET',
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w500,
-            letterSpacing: 1.5,
-            color: enabled ? AppColors.background : AppColors.textDisabled,
-          ),
-        ),
-      ],
-    ),
-  );
+      );
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -3004,7 +3079,7 @@ class _MixtoPanel extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Text(
-                'Total a cubrir',
+                'Productos a dividir',
                 style: TextStyle(
                   fontSize: 11,
                   color: AppColors.textSecondary,
@@ -3108,7 +3183,7 @@ class _MixtoPanel extends StatelessWidget {
                 ),
                 const SizedBox(width: 6),
                 Text(
-                  'El efectivo no puede superar \$${total.toStringAsFixed(2)}',
+                  'El efectivo no puede superar \$${total.toStringAsFixed(2)} en productos',
                   style: TextStyle(
                     fontSize: 11,
                     color: AppColors.ocupado.withOpacity(0.8),
@@ -3213,7 +3288,7 @@ class _MixtoPanel extends StatelessWidget {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'El monto cubre el total. Si pagas todo en efectivo, elige "Efectivo" arriba.',
+                      'El monto cubre los productos. Si pagas todo en efectivo, elige "Efectivo" arriba.',
                       style: TextStyle(
                         fontSize: 10,
                         color: AppColors.ocupado.withOpacity(0.8),
@@ -3249,43 +3324,43 @@ class _ModeChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => GestureDetector(
-    onTap: onTap,
-    child: AnimatedContainer(
-      duration: const Duration(milliseconds: 200),
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
-      decoration: BoxDecoration(
-        color: selected
-            ? AppColors.gold.withOpacity(0.1)
-            : AppColors.background,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: selected ? AppColors.gold : AppColors.surfaceElevated,
-          width: selected ? 1.5 : 1,
-        ),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            icon,
-            size: 16,
-            color: selected ? AppColors.gold : AppColors.textSecondary,
-          ),
-          const SizedBox(width: 8),
-          Flexible(
-            child: Text(
-              label,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w400,
-                color: selected ? AppColors.gold : AppColors.textSecondary,
-              ),
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
+          decoration: BoxDecoration(
+            color: selected
+                ? AppColors.gold.withOpacity(0.1)
+                : AppColors.background,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: selected ? AppColors.gold : AppColors.surfaceElevated,
+              width: selected ? 1.5 : 1,
             ),
           ),
-        ],
-      ),
-    ),
-  );
+          child: Row(
+            children: [
+              Icon(
+                icon,
+                size: 16,
+                color: selected ? AppColors.gold : AppColors.textSecondary,
+              ),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w400,
+                    color: selected ? AppColors.gold : AppColors.textSecondary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
 }
 
 class _SmallMethodBtn extends StatelessWidget {
@@ -3302,40 +3377,40 @@ class _SmallMethodBtn extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => GestureDetector(
-    onTap: onTap,
-    child: AnimatedContainer(
-      duration: const Duration(milliseconds: 200),
-      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 6),
-      decoration: BoxDecoration(
-        color: selected
-            ? AppColors.gold.withOpacity(0.1)
-            : AppColors.surfaceElevated,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: selected ? AppColors.gold : Colors.transparent,
-          width: 1.5,
-        ),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            icon,
-            size: 14,
-            color: selected ? AppColors.gold : AppColors.textSecondary,
-          ),
-          const SizedBox(height: 3),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 10,
-              color: selected ? AppColors.gold : AppColors.textSecondary,
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 6),
+          decoration: BoxDecoration(
+            color: selected
+                ? AppColors.gold.withOpacity(0.1)
+                : AppColors.surfaceElevated,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: selected ? AppColors.gold : Colors.transparent,
+              width: 1.5,
             ),
           ),
-        ],
-      ),
-    ),
-  );
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                icon,
+                size: 14,
+                color: selected ? AppColors.gold : AppColors.textSecondary,
+              ),
+              const SizedBox(height: 3),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 10,
+                  color: selected ? AppColors.gold : AppColors.textSecondary,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
 }
 
 class _PaymentOption extends StatelessWidget {
@@ -3354,86 +3429,89 @@ class _PaymentOption extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => GestureDetector(
-    onTap: onTap,
-    child: AnimatedContainer(
-      duration: const Duration(milliseconds: 200),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: selected
-            ? AppColors.gold.withOpacity(0.08)
-            : AppColors.background,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: selected ? AppColors.gold : AppColors.surfaceElevated,
-          width: selected ? 1.5 : 1,
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: selected
+                ? AppColors.gold.withOpacity(0.08)
+                : AppColors.background,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: selected ? AppColors.gold : AppColors.surfaceElevated,
+              width: selected ? 1.5 : 1,
+            ),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: selected
+                      ? AppColors.gold.withOpacity(0.15)
+                      : AppColors.surfaceElevated,
+                  border: Border.all(
+                    color: selected
+                        ? AppColors.gold.withOpacity(0.4)
+                        : Colors.transparent,
+                  ),
+                ),
+                child: Icon(
+                  icon,
+                  color: selected ? AppColors.gold : AppColors.textSecondary,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      label,
+                      style: TextStyle(
+                        fontSize: 14,
+                        color:
+                            selected ? AppColors.gold : AppColors.textPrimary,
+                        fontWeight: FontWeight.w400,
+                      ),
+                    ),
+                    Text(
+                      subtitle,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: AppColors.textMuted,
+                        fontWeight: FontWeight.w300,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                width: 20,
+                height: 20,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: selected ? AppColors.gold : Colors.transparent,
+                  border: Border.all(
+                    color:
+                        selected ? AppColors.gold : AppColors.surfaceElevated,
+                    width: 2,
+                  ),
+                ),
+                child: selected
+                    ? const Icon(Icons.check,
+                        size: 12, color: AppColors.background)
+                    : null,
+              ),
+            ],
+          ),
         ),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: selected
-                  ? AppColors.gold.withOpacity(0.15)
-                  : AppColors.surfaceElevated,
-              border: Border.all(
-                color: selected
-                    ? AppColors.gold.withOpacity(0.4)
-                    : Colors.transparent,
-              ),
-            ),
-            child: Icon(
-              icon,
-              color: selected ? AppColors.gold : AppColors.textSecondary,
-              size: 20,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: selected ? AppColors.gold : AppColors.textPrimary,
-                    fontWeight: FontWeight.w400,
-                  ),
-                ),
-                Text(
-                  subtitle,
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: AppColors.textMuted,
-                    fontWeight: FontWeight.w300,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            width: 20,
-            height: 20,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: selected ? AppColors.gold : Colors.transparent,
-              border: Border.all(
-                color: selected ? AppColors.gold : AppColors.surfaceElevated,
-                width: 2,
-              ),
-            ),
-            child: selected
-                ? const Icon(Icons.check, size: 12, color: AppColors.background)
-                : null,
-          ),
-        ],
-      ),
-    ),
-  );
+      );
 }
 
 class _SectionLabel extends StatelessWidget {
@@ -3447,20 +3525,20 @@ class _SectionLabel extends StatelessWidget {
   });
   @override
   Widget build(BuildContext context) => Row(
-    children: [
-      Icon(icon, size: 14, color: color),
-      const SizedBox(width: 6),
-      Text(
-        label,
-        style: TextStyle(
-          fontSize: 10,
-          color: color,
-          letterSpacing: 1.5,
-          fontWeight: FontWeight.w500,
-        ),
-      ),
-    ],
-  );
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 10,
+              color: color,
+              letterSpacing: 1.5,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      );
 }
 
 class _TotalRow extends StatelessWidget {
@@ -3474,29 +3552,29 @@ class _TotalRow extends StatelessWidget {
   });
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 3),
-    child: Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 13,
-            color: color,
-            fontWeight: FontWeight.w300,
-          ),
+        padding: const EdgeInsets.symmetric(vertical: 3),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 13,
+                color: color,
+                fontWeight: FontWeight.w300,
+              ),
+            ),
+            Text(
+              '\$${value.toStringAsFixed(2)}',
+              style: TextStyle(
+                fontSize: 13,
+                color: color,
+                fontWeight: FontWeight.w300,
+              ),
+            ),
+          ],
         ),
-        Text(
-          '\$${value.toStringAsFixed(2)}',
-          style: TextStyle(
-            fontSize: 13,
-            color: color,
-            fontWeight: FontWeight.w300,
-          ),
-        ),
-      ],
-    ),
-  );
+      );
 }
 
 class _ActionBtn extends StatelessWidget {
@@ -3514,47 +3592,48 @@ class _ActionBtn extends StatelessWidget {
   });
   @override
   Widget build(BuildContext context) => GestureDetector(
-    onTap: disabled ? null : onTap,
-    child: AnimatedContainer(
-      duration: const Duration(milliseconds: 250),
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 15),
-      decoration: BoxDecoration(
-        gradient: disabled ? null : gradient,
-        color: disabled ? AppColors.surface : null,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: disabled || gradient == null
-            ? null
-            : [
-                BoxShadow(
-                  color: AppColors.gold.withOpacity(0.3),
-                  blurRadius: 20,
-                  offset: const Offset(0, 8),
+        onTap: disabled ? null : onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 250),
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(vertical: 15),
+          decoration: BoxDecoration(
+            gradient: disabled ? null : gradient,
+            color: disabled ? AppColors.surface : null,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: disabled || gradient == null
+                ? null
+                : [
+                    BoxShadow(
+                      color: AppColors.gold.withOpacity(0.3),
+                      blurRadius: 20,
+                      offset: const Offset(0, 8),
+                    ),
+                  ],
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                icon,
+                size: 18,
+                color: disabled ? AppColors.textDisabled : AppColors.background,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                  letterSpacing: 1.5,
+                  color:
+                      disabled ? AppColors.textDisabled : AppColors.background,
                 ),
-              ],
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            icon,
-            size: 18,
-            color: disabled ? AppColors.textDisabled : AppColors.background,
+              ),
+            ],
           ),
-          const SizedBox(width: 8),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
-              letterSpacing: 1.5,
-              color: disabled ? AppColors.textDisabled : AppColors.background,
-            ),
-          ),
-        ],
-      ),
-    ),
-  );
+        ),
+      );
 }
 
 class _ConfirmDialog extends StatelessWidget {
@@ -3572,101 +3651,101 @@ class _ConfirmDialog extends StatelessWidget {
   });
   @override
   Widget build(BuildContext context) => Dialog(
-    backgroundColor: Colors.transparent,
-    child: Container(
-      padding: const EdgeInsets.all(32),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: AppColors.surfaceElevated),
-        boxShadow: [
-          BoxShadow(color: AppColors.gold.withOpacity(0.1), blurRadius: 40),
-        ],
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 64,
-            height: 64,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: AppColors.gold.withOpacity(0.1),
-              border: Border.all(
-                color: AppColors.gold.withOpacity(0.4),
-                width: 2,
-              ),
-            ),
-            child: Icon(icon, color: AppColors.gold, size: 32),
+        backgroundColor: Colors.transparent,
+        child: Container(
+          padding: const EdgeInsets.all(32),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: AppColors.surfaceElevated),
+            boxShadow: [
+              BoxShadow(color: AppColors.gold.withOpacity(0.1), blurRadius: 40),
+            ],
           ),
-          const SizedBox(height: 20),
-          Text(
-            title,
-            style: const TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w300,
-              color: AppColors.gold,
-              letterSpacing: 1,
-            ),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            body,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontSize: 13,
-              color: AppColors.textSecondary,
-              fontWeight: FontWeight.w300,
-            ),
-          ),
-          const SizedBox(height: 28),
-          GestureDetector(
-            onTap: onConfirm,
-            child: Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [AppColors.gold, AppColors.goldLight],
-                ),
-                borderRadius: BorderRadius.circular(14),
-                boxShadow: [
-                  BoxShadow(
-                    color: AppColors.gold.withOpacity(0.3),
-                    blurRadius: 16,
-                    offset: const Offset(0, 6),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 64,
+                height: 64,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: AppColors.gold.withOpacity(0.1),
+                  border: Border.all(
+                    color: AppColors.gold.withOpacity(0.4),
+                    width: 2,
                   ),
-                ],
+                ),
+                child: Icon(icon, color: AppColors.gold, size: 32),
               ),
-              child: Text(
-                confirmLabel,
+              const SizedBox(height: 20),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w300,
+                  color: AppColors.gold,
+                  letterSpacing: 1,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                body,
                 textAlign: TextAlign.center,
                 style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w500,
-                  letterSpacing: 2,
-                  color: AppColors.background,
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 10),
-          GestureDetector(
-            onTap: () => Navigator.pop(context),
-            child: const Padding(
-              padding: EdgeInsets.symmetric(vertical: 10),
-              child: Text(
-                'Cancelar',
-                style: TextStyle(
                   fontSize: 13,
                   color: AppColors.textSecondary,
                   fontWeight: FontWeight.w300,
                 ),
               ),
-            ),
+              const SizedBox(height: 28),
+              GestureDetector(
+                onTap: onConfirm,
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [AppColors.gold, AppColors.goldLight],
+                    ),
+                    borderRadius: BorderRadius.circular(14),
+                    boxShadow: [
+                      BoxShadow(
+                        color: AppColors.gold.withOpacity(0.3),
+                        blurRadius: 16,
+                        offset: const Offset(0, 6),
+                      ),
+                    ],
+                  ),
+                  child: Text(
+                    confirmLabel,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      letterSpacing: 2,
+                      color: AppColors.background,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              GestureDetector(
+                onTap: () => Navigator.pop(context),
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 10),
+                  child: Text(
+                    'Cancelar',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: AppColors.textSecondary,
+                      fontWeight: FontWeight.w300,
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
-    ),
-  );
+        ),
+      );
 }

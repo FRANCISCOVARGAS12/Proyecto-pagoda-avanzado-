@@ -1,4 +1,4 @@
-import { Component, OnDestroy, OnInit } from '@angular/core';
+import { Component, OnDestroy, OnInit, ChangeDetectorRef } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ApiClientService } from '../../core/api/api-client.service';
 import { WebSocketService } from '../../core/websocket/websocket.service';
@@ -10,7 +10,9 @@ interface PropinasResponse {
 }
 
 interface JornadaEstadoApi {
+  id: number;
   fecha: string;
+  estado: string;
 }
 
 const PROPINAS_BASE_DATE = '2026-04-26';
@@ -23,76 +25,218 @@ const PROPINAS_PERIOD_DAYS = 15;
   styleUrl: './propinas.css',
 })
 export class PropinasComponent implements OnInit, OnDestroy {
+  // ── Fechas del periodo visible ────────────────────────────────
   startDate = '';
   endDate = '';
-  appliedStartDate = '';
-  appliedEndDate = '';
   minStartDate = PROPINAS_BASE_DATE;
   maxStartDate = '';
-  acumulado = 0;
-  diario = 0;
-  dailyDate = '';
-  jornadaActiva = false;
+
+  // ── Datos mostrados ───────────────────────────────────────────
+  acumulado = 0;         // Total del periodo de 15 días seleccionado
+  diario = 0;            // Propinas de hoy (siempre el día actual)
+  dailyDate = '';        // Fecha del diario (hoy)
+  jornadaActiva = false; // Si hay jornada abierta ahora mismo
+
+  // ── Estado ────────────────────────────────────────────────────
   cargando = false;
+  cargandoDiario = false;
   infoMessage = '';
 
-  private wsUnsubscribe: (() => void) | null = null;
+  // Modo manual = el usuario cambió el periodo manualmente
+  // En este modo el acumulado NO se actualiza por WS, el diario SÍ
   private manualMode = false;
-  private liveRefreshInFlight = false;
-  private pendingLiveAccumulated = false;
-  private pendingLiveDaily = false;
+
+  private wsUnsub: (() => void) | null = null;
 
   constructor(
     private apiClient: ApiClientService,
-    private wsService: WebSocketService
+    private wsService: WebSocketService,
+    private cdr: ChangeDetectorRef
   ) {}
 
   async ngOnInit(): Promise<void> {
     this.maxStartDate = this.toISO(new Date());
-    const periodoActual = this.current15DayPeriod();
-    this.startDate = periodoActual.inicio;
-    this.endDate = periodoActual.fin;
-    this.appliedStartDate = periodoActual.inicio;
-    this.appliedEndDate = periodoActual.fin;
+
+    // Siempre arrancar en el periodo actual de 15 días
+    const actual = this.periodoActual();
+    this.startDate = actual.inicio;
+    this.endDate = actual.fin;
     this.manualMode = false;
-    await this.cargarDatos();
+
+    // Cargar todo en paralelo
+    await Promise.all([
+      this.cargarAcumulado(),
+      this.cargarDiario(),
+    ]);
+
     void this.wsService.connect();
-    this.suscribirActualizaciones();
+    this.suscribirWS();
   }
 
   ngOnDestroy(): void {
-    this.wsUnsubscribe?.();
-    this.wsUnsubscribe = null;
+    this.wsUnsub?.();
+    this.wsUnsub = null;
   }
 
+  // ── Handlers de UI ───────────────────────────────────────────
+
   onStartDateChange(): void {
-    if (!this.startDate) {
-      return;
-    }
-    this.ajustarPeriodoSeleccionado();
-    this.infoMessage = '';
+    if (!this.startDate) return;
+    // Calcular el bloque de 15 días que contiene la fecha elegida
+    const periodo = this.periodoParaFecha(this.startDate);
+    this.startDate = periodo.inicio;
+    this.endDate = periodo.fin;
   }
 
   async consultarPropinas(): Promise<void> {
-    this.ajustarPeriodoSeleccionado();
-    const periodoActual = this.current15DayPeriod();
-    this.manualMode =
-      this.startDate !== periodoActual.inicio || this.endDate !== periodoActual.fin;
-    this.appliedStartDate = this.startDate;
-    this.appliedEndDate = this.endDate;
-    await this.cargarDatos();
+    // Verificar si el periodo elegido es el actual
+    const actual = this.periodoActual();
+    this.manualMode = this.startDate !== actual.inicio || this.endDate !== actual.fin;
+    await this.cargarAcumulado();
   }
 
   async limpiarFiltros(): Promise<void> {
-    const periodoActual = this.current15DayPeriod();
-    this.startDate = periodoActual.inicio;
-    this.endDate = periodoActual.fin;
-    this.appliedStartDate = periodoActual.inicio;
-    this.appliedEndDate = periodoActual.fin;
+    const actual = this.periodoActual();
+    this.startDate = actual.inicio;
+    this.endDate = actual.fin;
     this.manualMode = false;
     this.infoMessage = '';
-    await this.cargarDatos();
+    await this.cargarAcumulado();
   }
+
+  // ── Carga de datos ───────────────────────────────────────────
+
+  // Carga el acumulado del periodo visible (startDate–endDate)
+  private async cargarAcumulado(): Promise<void> {
+    this.cargando = true;
+    this.infoMessage = '';
+    try {
+      const data = await this.apiClient.get<PropinasResponse>(
+        `/api/reportes/propinas?inicio=${this.startDate}&fin=${this.endDate}`
+      );
+      this.acumulado = Number(data?.acumulado ?? 0);
+      // El backend puede ajustar las fechas — actualizar con las que devuelve
+      if (data?.inicio) this.startDate = data.inicio.slice(0, 10);
+      if (data?.fin)    this.endDate   = data.fin.slice(0, 10);
+    } catch (err) {
+      console.error('Error cargando acumulado:', err);
+      this.infoMessage = 'Error al cargar propinas acumuladas.';
+      this.acumulado = 0;
+    } finally {
+      this.cargando = false;
+      this.cdr.detectChanges();
+    }
+  }
+
+  // Carga las propinas de hoy + estado de jornada
+  private async cargarDiario(): Promise<void> {
+    this.cargandoDiario = true;
+    try {
+      // 1. Obtener fecha de la jornada activa (si existe)
+      let fechaHoy = '';
+      let hayJornadaActiva = false;
+      try {
+        const jornada = await this.apiClient.get<JornadaEstadoApi>(
+          '/api/operacion/jornadas/estado'
+        );
+        if (jornada?.fecha) {
+          fechaHoy = jornada.fecha.slice(0, 10);
+          hayJornadaActiva = true;
+        } else {
+          hayJornadaActiva = false;
+        }
+      } catch {
+        // 404 = sin jornada abierta
+        hayJornadaActiva = false;
+      }
+
+      this.jornadaActiva = hayJornadaActiva;
+      if (!hayJornadaActiva || !fechaHoy) {
+        this.dailyDate = '';
+        this.diario = 0;
+        return;
+      }
+
+      this.dailyDate = fechaHoy;
+
+      // 2. Consultar propinas de ese día
+      const data = await this.apiClient.get<PropinasResponse>(
+        `/api/reportes/propinas?inicio=${fechaHoy}&fin=${fechaHoy}`
+      );
+      this.diario = Number(data?.acumulado ?? 0);
+    } catch (err) {
+      console.error('Error cargando diario:', err);
+      this.diario = 0;
+    } finally {
+      this.cargandoDiario = false;
+      this.cdr.detectChanges();
+    }
+  }
+
+  // ── WebSocket ────────────────────────────────────────────────
+
+  private suscribirWS(): void {
+    // Evento de propinas: un pedido cerrado con propina
+    const unsubPropinas = this.wsService.subscribe('/topic/propinas', (event: any) => {
+      // Siempre actualizar el diario (es hoy sin importar el modo)
+      void this.cargarDiario();
+
+      // Actualizar acumulado SOLO si no está en modo manual
+      if (!this.manualMode) {
+        // Verificar si el nuevo periodo activo cambió
+        const actual = this.periodoActual();
+        if (this.startDate !== actual.inicio) {
+          // Cambió el periodo de 15 días → resetear al nuevo
+          this.startDate = actual.inicio;
+          this.endDate = actual.fin;
+        }
+        void this.cargarAcumulado();
+      }
+    });
+
+    // Evento de jornada: abrió o cerró
+    const unsubJornada = this.wsService.subscribe('/topic/jornada', (event: any) => {
+      if (event?.accion === 'ABIERTA') {
+        this.jornadaActiva = true;
+        if (event?.jornada?.fecha) {
+          this.dailyDate = event.jornada.fecha.slice(0, 10);
+        }
+        void this.cargarDiario();
+      } else if (event?.accion === 'CERRADA') {
+        this.jornadaActiva = false;
+        void this.cargarDiario();
+      }
+      this.cdr.detectChanges();
+    });
+
+    this.wsUnsub = () => {
+      unsubPropinas();
+      unsubJornada();
+    };
+  }
+
+  // ── Labels ───────────────────────────────────────────────────
+
+  rangeLabel(): string {
+    if (!this.startDate || !this.endDate) return 'Sin periodo definido';
+    return `${this.formatFecha(this.startDate)} – ${this.formatFecha(this.endDate)}`;
+  }
+
+  dailyStatusLabel(): string {
+    if (!this.jornadaActiva) return 'Sin jornada abierta';
+    return `Jornada abierta · ${this.formatFecha(this.dailyDate)}`;
+  }
+
+  esPeriodoActual(): boolean {
+    const actual = this.periodoActual();
+    return this.startDate === actual.inicio && this.endDate === actual.fin;
+  }
+
+  isConsultarDisabled(): boolean {
+    return this.cargando || !this.startDate || !this.endDate;
+  }
+
+  // ── Utilidades ───────────────────────────────────────────────
 
   formatFecha(iso: string): string {
     if (!iso || iso.length < 10) return iso;
@@ -100,41 +244,31 @@ export class PropinasComponent implements OnInit, OnDestroy {
     return `${d}/${m}/${y}`;
   }
 
-  rangeLabel(): string {
-    const inicio = this.appliedStartDate || this.startDate;
-    const fin = this.appliedEndDate || this.endDate;
-    if (!inicio || !fin) return 'Sin periodo definido';
-    return `${this.formatFecha(inicio)} – ${this.formatFecha(fin)}`;
-  }
-
-  dailyStatusLabel(): string {
-    if (!this.jornadaActiva || !this.dailyDate) {
-      return 'Sin jornada abierta';
-    }
-    return `Jornada activa · ${this.formatFecha(this.dailyDate)}`;
-  }
-
-  isConsultarDisabled(): boolean {
-    return this.cargando || !this.startDate || !this.endDate;
-  }
-
   fmt(n: number): string {
     return `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   }
 
-  private suscribirActualizaciones(): void {
-    const unsubscribePropinas = this.wsService.subscribe('/topic/propinas', (_event: any) => {
-      this.marcarRefrescoEnVivo(true);
-    });
+  private periodoActual(): { inicio: string; fin: string } {
+    return this.periodoParaFecha(this.toISO(new Date()));
+  }
 
-    const unsubscribeJornada = this.wsService.subscribe('/topic/jornada', (_event: any) => {
-      this.marcarRefrescoEnVivo(false);
-    });
+  private periodoParaFecha(isoDate: string): { inicio: string; fin: string } {
+    const base = this.parseISO(PROPINAS_BASE_DATE);
+    const max  = this.parseISO(this.maxStartDate || this.toISO(new Date()));
+    let target = this.parseISO(isoDate);
 
-    this.wsUnsubscribe = () => {
-      unsubscribePropinas();
-      unsubscribeJornada();
-    };
+    if (target < base) target = base;
+    if (target > max)  target = max;
+
+    const diffDays    = Math.floor((target.getTime() - base.getTime()) / 86400000);
+    const blockOffset = Math.floor(diffDays / PROPINAS_PERIOD_DAYS) * PROPINAS_PERIOD_DAYS;
+
+    const inicio = new Date(base);
+    inicio.setDate(base.getDate() + blockOffset);
+    const fin = new Date(inicio);
+    fin.setDate(inicio.getDate() + PROPINAS_PERIOD_DAYS - 1);
+
+    return { inicio: this.toISO(inicio), fin: this.toISO(fin) };
   }
 
   private toISO(date: Date): string {
@@ -144,201 +278,8 @@ export class PropinasComponent implements OnInit, OnDestroy {
     return `${y}-${m}-${d}`;
   }
 
-  private current15DayPeriod(): { inicio: string; fin: string } {
-    return this.periodoParaFecha(this.toISO(new Date()));
-  }
-
-  private marcarRefrescoEnVivo(refreshAccumulated: boolean): void {
-    if (refreshAccumulated && !this.manualMode) {
-      this.pendingLiveAccumulated = true;
-    }
-    this.pendingLiveDaily = true;
-
-    if (this.liveRefreshInFlight) {
-      return;
-    }
-    void this.ejecutarRefrescoEnVivo();
-  }
-
-  private async ejecutarRefrescoEnVivo(): Promise<void> {
-    if (this.liveRefreshInFlight) {
-      return;
-    }
-    this.liveRefreshInFlight = true;
-    try {
-      while (this.pendingLiveAccumulated || this.pendingLiveDaily) {
-        const shouldRefreshAccumulated = this.pendingLiveAccumulated;
-        const shouldRefreshDaily = this.pendingLiveDaily;
-        this.pendingLiveAccumulated = false;
-        this.pendingLiveDaily = false;
-
-        if (shouldRefreshAccumulated && !this.manualMode) {
-          const periodoActual = this.current15DayPeriod();
-          this.startDate = periodoActual.inicio;
-          this.endDate = periodoActual.fin;
-          this.appliedStartDate = periodoActual.inicio;
-          this.appliedEndDate = periodoActual.fin;
-          await this.cargarAcumulado(this.appliedStartDate, this.appliedEndDate);
-        }
-
-        if (shouldRefreshDaily) {
-          await this.cargarPropinaDiaria();
-        }
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      this.liveRefreshInFlight = false;
-    }
-  }
-
-  private async cargarDatos(showLoading = true): Promise<void> {
-    if (showLoading) {
-      this.cargando = true;
-      this.infoMessage = '';
-    }
-
-    try {
-      const [acumuladoResult, diarioResult] = await Promise.allSettled([
-        this.cargarAcumulado(this.appliedStartDate, this.appliedEndDate),
-        this.cargarPropinaDiaria(),
-      ]);
-
-      if (acumuladoResult.status === 'rejected') {
-        throw acumuladoResult.reason;
-      }
-      if (diarioResult.status === 'rejected') {
-        console.error(diarioResult.reason);
-      }
-    } catch (err) {
-      console.error(err);
-      if (showLoading) {
-        this.infoMessage = 'Error al cargar propinas.';
-      }
-    } finally {
-      if (showLoading) {
-        this.cargando = false;
-      }
-    }
-  }
-
-  private async cargarAcumulado(inicio: string, fin: string): Promise<void> {
-    const periodo = await this.withTimeout(
-      this.apiClient.get<PropinasResponse>(`/api/reportes/propinas?inicio=${inicio}&fin=${fin}`),
-      10000,
-      'Tiempo de espera agotado al consultar propinas acumuladas.'
-    );
-    this.appliedStartDate = this.isoDateKey(periodo?.inicio) || inicio;
-    this.appliedEndDate = this.isoDateKey(periodo?.fin) || fin;
-    this.acumulado = Number(periodo?.acumulado ?? 0);
-  }
-
-  private async cargarPropinaDiaria(): Promise<void> {
-    const dailyDate = await this.resolveDailyDate();
-    if (!dailyDate) {
-      this.jornadaActiva = false;
-      this.dailyDate = '';
-      this.diario = 0;
-      return;
-    }
-
-    this.jornadaActiva = true;
-    this.dailyDate = dailyDate;
-    const diario = await this.withTimeout(
-      this.apiClient.get<PropinasResponse>(`/api/reportes/propinas?inicio=${dailyDate}&fin=${dailyDate}`),
-      10000,
-      'Tiempo de espera agotado al consultar propina diaria.'
-    );
-    this.diario = Number(diario?.acumulado ?? 0);
-  }
-
-  private async resolveDailyDate(): Promise<string | null> {
-    try {
-      const jornada = await this.withTimeout(
-        this.apiClient.get<JornadaEstadoApi>('/api/operacion/jornadas/estado'),
-        6000,
-        'Tiempo de espera agotado al consultar estado de jornada.'
-      );
-      const jornadaDate = this.isoDateKey(jornada?.fecha);
-      if (jornadaDate) {
-        return jornadaDate;
-      }
-    } catch {
-      // Sin jornada abierta en este endpoint.
-    }
-
-    try {
-      const jornada = await this.withTimeout(
-        this.apiClient.get<JornadaEstadoApi>('/api/jornadas/estado'),
-        6000,
-        'Tiempo de espera agotado al consultar estado de jornada.'
-      );
-      const jornadaDate = this.isoDateKey(jornada?.fecha);
-      if (jornadaDate) {
-        return jornadaDate;
-      }
-    } catch {
-      // Sin jornada abierta en endpoint alterno.
-    }
-
-    return null;
-  }
-
-  private ajustarPeriodoSeleccionado(): void {
-    const periodo = this.periodoParaFecha(this.startDate || PROPINAS_BASE_DATE);
-    this.startDate = periodo.inicio;
-    this.endDate = periodo.fin;
-  }
-
-  private periodoParaFecha(isoDate: string): { inicio: string; fin: string } {
-    const fechaBase = this.parseIsoDate(PROPINAS_BASE_DATE);
-    const fechaMaxima = this.parseIsoDate(this.maxStartDate || this.toISO(new Date()));
-    const seleccion = this.parseIsoDate(isoDate);
-
-    let fechaObjetivo = seleccion;
-    if (fechaObjetivo < fechaBase) {
-      fechaObjetivo = fechaBase;
-    }
-    if (fechaObjetivo > fechaMaxima) {
-      fechaObjetivo = fechaMaxima;
-    }
-
-    const diffMs = fechaObjetivo.getTime() - fechaBase.getTime();
-    const diffDays = Math.floor(diffMs / 86400000);
-    const offsetBlocks = Math.floor(diffDays / PROPINAS_PERIOD_DAYS) * PROPINAS_PERIOD_DAYS;
-
-    const inicio = new Date(fechaBase);
-    inicio.setDate(fechaBase.getDate() + offsetBlocks);
-    const fin = new Date(inicio);
-    fin.setDate(inicio.getDate() + (PROPINAS_PERIOD_DAYS - 1));
-
-    return { inicio: this.toISO(inicio), fin: this.toISO(fin) };
-  }
-
-  private parseIsoDate(isoDate: string): Date {
-    const parsed = new Date(`${isoDate}T00:00:00`);
-    if (Number.isNaN(parsed.getTime())) {
-      return new Date();
-    }
-    return parsed;
-  }
-
-  private isoDateKey(rawDate: string | undefined | null): string {
-    return (rawDate ?? '').toString().slice(0, 10);
-  }
-
-  private withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> {
-    return new Promise<T>((resolve, reject) => {
-      const timeoutId = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
-      promise
-        .then((value) => {
-          clearTimeout(timeoutId);
-          resolve(value);
-        })
-        .catch((error) => {
-          clearTimeout(timeoutId);
-          reject(error);
-        });
-    });
+  private parseISO(iso: string): Date {
+    const d = new Date(`${iso}T00:00:00`);
+    return isNaN(d.getTime()) ? new Date() : d;
   }
 }

@@ -7,9 +7,6 @@ export interface AdminUiSettings {
   printSummaryOnClose: boolean;
   receiptHeader: string;
   receiptFooter: string;
-  showTableNumber: boolean;
-  showTicketCommission: boolean;
-  suggestedTipPercent: number;
 }
 
 const SETTINGS_KEY = 'pagoda-admin-ui-settings';
@@ -19,11 +16,8 @@ const DEFAULT_SETTINGS: AdminUiSettings = {
   autoLogoutMinutes: 30,
   printerTickets: 'default',
   printSummaryOnClose: true,
-  receiptHeader: 'Restaurante La Pagoda',
-  receiptFooter: 'Gracias por su visita. ¡Vuelva pronto!',
-  showTableNumber: true,
-  showTicketCommission: true,
-  suggestedTipPercent: 10,
+  receiptHeader: 'Restaurante Asiático',
+  receiptFooter: '¡Gracias por su visita!',
 };
 
 @Injectable({ providedIn: 'root' })
@@ -73,8 +67,6 @@ export class AdminSettingsService {
         : DEFAULT_SETTINGS.printerTickets;
 
     const autoLogout = Number(raw.autoLogoutMinutes);
-    const tipPercent = Number(raw.suggestedTipPercent);
-
     return {
       defaultRoleName: normalizedRole || DEFAULT_SETTINGS.defaultRoleName,
       autoLogoutMinutes: Number.isFinite(autoLogout) && autoLogout >= 0 ? autoLogout : DEFAULT_SETTINGS.autoLogoutMinutes,
@@ -82,9 +74,6 @@ export class AdminSettingsService {
       printSummaryOnClose: raw.printSummaryOnClose ?? DEFAULT_SETTINGS.printSummaryOnClose,
       receiptHeader: String(raw.receiptHeader ?? DEFAULT_SETTINGS.receiptHeader).trim() || DEFAULT_SETTINGS.receiptHeader,
       receiptFooter: String(raw.receiptFooter ?? DEFAULT_SETTINGS.receiptFooter).trim() || DEFAULT_SETTINGS.receiptFooter,
-      showTableNumber: raw.showTableNumber ?? DEFAULT_SETTINGS.showTableNumber,
-      showTicketCommission: raw.showTicketCommission ?? DEFAULT_SETTINGS.showTicketCommission,
-      suggestedTipPercent: Number.isFinite(tipPercent) && tipPercent >= 0 ? tipPercent : DEFAULT_SETTINGS.suggestedTipPercent,
     };
   }
 }

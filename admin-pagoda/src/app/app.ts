@@ -13,20 +13,60 @@ const USER_ACTIVITY_EVENTS: Array<keyof WindowEventMap> = ['mousemove', 'mousedo
 
 interface VentaApi {
   id: number;
+  mesa: { numero: number } | null;
+  jornada: { id: number } | null;
   fechaCierre: string | null;
+  totalCuenta?: number;
 }
 
 interface PagoApi {
   metodoPago: { nombre: string } | null;
+  propinaMetodoPago?: { nombre: string } | null;
   monto: number;
   montoNeto: number;
+  comisionPorcentaje?: number;
   propinaMonto?: number;
   propinaNeto?: number;
 }
 
+interface ItemVentaApi {
+  producto: { nombre: string } | null;
+  precioUnitario: number;
+  cantidad: number;
+}
+
 interface ParametrosLocalApi {
   fondoLunes: number;
+  fondoMartes: number;
+  fondoMiercoles: number;
+  fondoJueves: number;
+  fondoViernes: number;
+  fondoSabado: number;
+  fondoDomingo: number;
   comisionBancaria: number;
+}
+
+type PaymentMethodKey = 'efectivo' | 'tarjeta';
+type TipDiscountPolicy = 'never' | 'same-or-null' | 'always';
+
+interface DishItem {
+  nombre: string;
+  precio: number;
+}
+
+interface OrderRow {
+  id: string;
+  mesa: string;
+  pedido: number;
+  jornadaFecha: string;
+  totalBruto: number;
+  totalNeto: number;
+  tipoPago: 'efectivo' | 'tarjeta' | 'mixto';
+  efectivoAmount?: number;
+  tarjetaBruto?: number;
+  tarjetaNeto?: number;
+  tarjetaComisionPorcentaje?: number;
+  dishes: DishItem[];
 }
 
 @Component({
@@ -221,79 +261,504 @@ export class App implements OnDestroy {
     try {
       const ventas = await this.apiClient.get<VentaApi[]>(`/api/ventas/jornada/${jornada.id}`);
       const ventasCerradas = ventas.filter((venta) => Boolean(venta.fechaCierre));
-      const pagosPorVenta = await Promise.all(
-        ventasCerradas.map((venta) => this.apiClient.get<PagoApi[]>(`/api/ventas/pagos/venta/${venta.id}`)),
+      const orderDetails = await Promise.all(
+        ventasCerradas.map((venta) =>
+          Promise.all([
+            this.apiClient.get<ItemVentaApi[]>(`/api/ventas/items/venta/${venta.id}`),
+            this.apiClient.get<PagoApi[]>(`/api/ventas/pagos/venta/${venta.id}`),
+          ]).then(([items, pagos]) => ({ venta, items, pagos })),
+        ),
+      );
+      const jornadaFecha = this.formatDate(jornada.fecha);
+      const orders = orderDetails.map(({ venta, items, pagos }) =>
+        this.mapOrder(venta, items, pagos, jornadaFecha),
       );
 
-      let totalEfectivo = 0;
-      let totalTarjetaBruto = 0;
-      let totalTarjetaNeto = 0;
-      let totalPropinas = 0;
+      const totalEfectivo = this.roundCurrency(
+        orders.reduce((accumulator, order) => accumulator + Number(order.efectivoAmount ?? 0), 0),
+      );
+      const totalTarjetaBruto = this.roundCurrency(
+        orders.reduce((accumulator, order) => accumulator + Number(order.tarjetaBruto ?? 0), 0),
+      );
+      const totalTarjetaNeto = this.roundCurrency(
+        orders.reduce((accumulator, order) => accumulator + Number(order.tarjetaNeto ?? 0), 0),
+      );
 
-      pagosPorVenta.flat().forEach((pago) => {
-        const metodo = (pago.metodoPago?.nombre ?? '').toLowerCase();
-        const monto = Number(pago.monto ?? 0);
-        const montoNeto = Number(pago.montoNeto ?? 0);
-        const propinaBruta = Number(pago.propinaMonto ?? 0);
-        const propinaNeta = Number(pago.propinaNeto ?? pago.propinaMonto ?? 0);
-        const ventaBruta = Math.max(0, monto - propinaBruta);
-        const ventaNeta = Math.max(0, montoNeto - propinaNeta);
-        totalPropinas += Math.max(0, propinaNeta);
-
-        if (metodo.includes('tarjeta')) {
-          totalTarjetaBruto += ventaBruta;
-          totalTarjetaNeto += ventaNeta;
-          return;
-        }
-        totalEfectivo += ventaBruta;
-      });
-
-      let fondoInicial = 0;
-      let comisionTarjeta = 0;
+      let fondoInicial = this.roundCurrency(Number(jornada.fondoCaja ?? 0));
       try {
         const parametros = await this.apiClient.get<ParametrosLocalApi>('/api/operacion/parametros');
-        fondoInicial = Number(parametros.fondoLunes ?? 0);
-        comisionTarjeta = Number(parametros.comisionBancaria ?? 0);
+        fondoInicial = this.resolveFondoByDate(parametros, jornada.fecha, fondoInicial);
       } catch {
         // No bloquea la generación del PDF si parámetros no están disponibles.
       }
 
-      const totalVentas = totalEfectivo + totalTarjetaNeto;
-      const settings = this.adminSettingsService.snapshot();
-      const nowLabel = new Date().toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' });
-      const { jsPDF } = await import('jspdf');
-      const doc = new jsPDF({ unit: 'mm', format: 'a4' });
-
-      doc.setFontSize(18);
-      doc.text(settings.receiptHeader, 14, 18);
-      doc.setFontSize(11);
-      doc.text(`Resumen de cierre de jornada #${jornada.id}`, 14, 28);
-      doc.text(`Fecha jornada: ${jornada.fecha}`, 14, 35);
-      doc.text(`Generado: ${nowLabel}`, 14, 42);
-
-      doc.setFontSize(12);
-      doc.text(`Fondo inicial: ${this.formatMoney(fondoInicial)}`, 14, 58);
-      doc.text(`Ventas en efectivo: ${this.formatMoney(totalEfectivo)}`, 14, 67);
-      doc.text(`Tarjeta bruto: ${this.formatMoney(totalTarjetaBruto)}`, 14, 76);
-      doc.text(`Tarjeta neto: ${this.formatMoney(totalTarjetaNeto)}`, 14, 85);
-      doc.text(`Total ventas (sin propinas): ${this.formatMoney(totalVentas)}`, 14, 98);
-      doc.text(`Propinas netas: ${this.formatMoney(totalPropinas)}`, 14, 107);
-      doc.text(`Pedidos cerrados: ${ventasCerradas.length}`, 14, 116);
-
-      if (settings.showTicketCommission) {
-        doc.text(`Comisión tarjeta aplicada: ${comisionTarjeta.toLocaleString('es-MX')}%`, 14, 125);
-      }
-
-      doc.setFontSize(10);
-      doc.text(settings.receiptFooter, 14, 285);
-      doc.save(`resumen-cierre-jornada-${jornada.id}.pdf`);
+      await this.exportSalesReportPdf({
+        filename: `resumen-cierre-jornada-${jornada.id}.pdf`,
+        rangeLabel: jornadaFecha,
+        scopeLabel: `#${jornada.id} · ${jornadaFecha} · CERRADA`,
+        totalVentas: this.roundCurrency(fondoInicial + totalEfectivo + totalTarjetaNeto),
+        fondoInicial,
+        totalEfectivo,
+        totalTarjetaBruto,
+        totalTarjetaNeto,
+        orders,
+      });
     } catch (error) {
       const message = error instanceof Error && error.message ? error.message : 'No se pudo generar el PDF de cierre.';
       this.toastService.error(message);
     }
   }
 
+  private async exportSalesReportPdf(payload: {
+    filename: string;
+    rangeLabel: string;
+    scopeLabel: string;
+    totalVentas: number;
+    fondoInicial: number;
+    totalEfectivo: number;
+    totalTarjetaBruto: number;
+    totalTarjetaNeto: number;
+    orders: OrderRow[];
+  }): Promise<void> {
+    const { jsPDF } = await import('jspdf');
+    const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+    const generatedAt = new Date().toLocaleString('es-MX', {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    });
+    const palette = {
+      primary: [32, 64, 92] as const,
+      primarySoft: [232, 240, 248] as const,
+      accent: [76, 122, 164] as const,
+      border: [220, 228, 236] as const,
+      text: [30, 41, 59] as const,
+      muted: [100, 116, 139] as const,
+    };
+    const margin = 14;
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const contentWidth = pageWidth - margin * 2;
+    let y = 0;
+
+    const ensureSpace = (neededHeight: number): void => {
+      if (y + neededHeight > pageHeight - margin) {
+        doc.addPage();
+        y = 16;
+      }
+    };
+
+    const drawHeader = (): void => {
+      doc.setFillColor(...palette.primarySoft);
+      doc.rect(0, 0, pageWidth, 38, 'F');
+      doc.setFillColor(...palette.primary);
+      doc.rect(0, 0, pageWidth, 4.5, 'F');
+
+      doc.setTextColor(...palette.text);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(20);
+      doc.text('Pagoda', margin, 14);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+      doc.setTextColor(...palette.muted);
+      doc.text('Reporte de ventas', margin, 21);
+      doc.text(`Rango: ${payload.rangeLabel}`, margin, 27);
+      doc.text(`Ambito: ${payload.scopeLabel}`, margin, 33);
+
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(...palette.primary);
+      doc.text(this.formatMoney(payload.totalVentas), pageWidth - margin, 18, { align: 'right' });
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setTextColor(...palette.muted);
+      doc.text('Total de ventas', pageWidth - margin, 24, { align: 'right' });
+
+      y = 44;
+    };
+
+    const addSectionTitle = (title: string): void => {
+      ensureSpace(14);
+      doc.setFillColor(...palette.primarySoft);
+      doc.roundedRect(margin, y, contentWidth, 10, 2, 2, 'F');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.setTextColor(...palette.primary);
+      doc.text(title.toUpperCase(), margin + 3.5, y + 6.9);
+      y += 13;
+    };
+
+    const addKeyValue = (label: string, value: string): void => {
+      ensureSpace(10);
+      doc.setDrawColor(...palette.border);
+      doc.setFillColor(255, 255, 255);
+      doc.roundedRect(margin, y, contentWidth, 9, 2, 2, 'FD');
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9.5);
+      doc.setTextColor(...palette.muted);
+      doc.text(label, margin + 3.5, y + 6.1);
+
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(...palette.text);
+      doc.text(value, pageWidth - margin - 3.5, y + 6.1, { align: 'right' });
+      y += 11;
+    };
+
+    const addOrderBlock = (order: OrderRow): void => {
+      const extraLines = order.tipoPago === 'mixto' ? 1 : 0;
+      const estimatedHeight = 28 + order.dishes.length * 5 + extraLines * 4;
+      ensureSpace(estimatedHeight);
+
+      doc.setFillColor(255, 255, 255);
+      doc.setDrawColor(...palette.border);
+      doc.roundedRect(margin, y, contentWidth, estimatedHeight, 3, 3, 'FD');
+
+      doc.setFillColor(...palette.accent);
+      doc.rect(margin, y, 1.8, estimatedHeight, 'F');
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.setTextColor(...palette.text);
+      doc.text(`${order.mesa} · Pedido ${order.pedido}`, margin + 4.5, y + 7.2);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.setTextColor(...palette.muted);
+      doc.text(`Fecha jornada: ${order.jornadaFecha}`, margin + 4.5, y + 12.2);
+
+      const paymentLabel =
+        order.tipoPago === 'efectivo' ? 'Efectivo' : order.tipoPago === 'tarjeta' ? 'Tarjeta' : 'Mixto';
+
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(...palette.primary);
+      doc.text(this.formatMoney(order.totalNeto), pageWidth - margin - 4.5, y + 7.2, { align: 'right' });
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.setTextColor(...palette.muted);
+      doc.text(paymentLabel, pageWidth - margin - 4.5, y + 12.2, { align: 'right' });
+
+      let innerY = y + 18;
+      doc.setFontSize(9.5);
+      doc.setTextColor(...palette.text);
+      doc.text(`Pago: ${order.tipoPago} · Bruto: ${this.formatMoney(order.totalBruto)} · Neto: ${this.formatMoney(order.totalNeto)}`, margin + 4.5, innerY);
+      innerY += 5;
+
+      if (order.tipoPago === 'mixto') {
+        doc.setTextColor(...palette.muted);
+        doc.text(
+          `Detalle mixto: efectivo ${this.formatMoney(order.efectivoAmount ?? 0)} + tarjeta ${this.formatMoney(order.tarjetaBruto ?? 0)} / ${this.formatMoney(order.tarjetaNeto ?? 0)}`,
+          margin + 4.5,
+          innerY,
+        );
+        innerY += 5;
+      }
+
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(...palette.primary);
+      doc.text('Platos', margin + 4.5, innerY);
+      innerY += 4.5;
+
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(...palette.text);
+      for (const dish of order.dishes) {
+        doc.text(`• ${dish.nombre}`, margin + 8, innerY);
+        doc.text(this.formatMoney(dish.precio), pageWidth - margin - 4.5, innerY, { align: 'right' });
+        innerY += 4.8;
+      }
+
+      y += estimatedHeight + 3;
+    };
+
+    drawHeader();
+
+    addSectionTitle('Resumen ejecutivo');
+    addKeyValue('Fondo inicial', this.formatMoney(payload.fondoInicial));
+    addKeyValue('Total efectivo', this.formatMoney(payload.totalEfectivo));
+    addKeyValue('Total tarjeta bruto', this.formatMoney(payload.totalTarjetaBruto));
+    addKeyValue('Total tarjeta neto', this.formatMoney(payload.totalTarjetaNeto));
+
+    addSectionTitle('Pedidos');
+    if (!payload.orders.length) {
+      ensureSpace(8);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9.5);
+      doc.setTextColor(...palette.muted);
+      doc.text('Sin pedidos registrados en el ambito seleccionado.', margin, y);
+      y += 7;
+    }
+
+    for (const order of payload.orders) {
+      addOrderBlock(order);
+    }
+
+    const totalPages = doc.getNumberOfPages();
+    for (let page = 1; page <= totalPages; page++) {
+      doc.setPage(page);
+      doc.setDrawColor(...palette.border);
+      doc.line(margin, pageHeight - 12, pageWidth - margin, pageHeight - 12);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(...palette.muted);
+      doc.text(`Generado ${generatedAt}`, margin, pageHeight - 7);
+      doc.text(`Pagina ${page} de ${totalPages}`, pageWidth - margin, pageHeight - 7, { align: 'right' });
+    }
+
+    doc.save(payload.filename);
+  }
+
+  private mapOrder(
+    venta: VentaApi,
+    items: ItemVentaApi[],
+    pagos: PagoApi[],
+    jornadaFecha: string,
+  ): OrderRow {
+    const dishes = items.map((item) => {
+      const cantidad = Number(item.cantidad ?? 1);
+      const safeCantidad = Number.isFinite(cantidad) && cantidad > 0 ? cantidad : 1;
+      const precioTotal = Number(item.precioUnitario ?? 0) * safeCantidad;
+      const nombreBase = item.producto?.nombre || 'Platillo';
+      return {
+        nombre: safeCantidad > 1 ? `${nombreBase} x${safeCantidad}` : nombreBase,
+        precio: precioTotal,
+      };
+    });
+
+    const dishesTotal = this.roundCurrency(
+      dishes.reduce((accumulator, dish) => accumulator + this.toFiniteNumber(Number(dish.precio ?? 0)), 0),
+    );
+    const targetBruto = dishesTotal > 0
+      ? dishesTotal
+      : this.roundCurrency(Number(venta.totalCuenta ?? 0));
+
+    const brutoByMethodNever = this.calculateBaseTotalsByMethod(
+      pagos,
+      (pago) => Number(pago.monto ?? 0),
+      (pago) => Number(pago.propinaMonto ?? 0),
+      'never',
+    );
+    const brutoByMethodDefault = this.calculateBaseTotalsByMethod(
+      pagos,
+      (pago) => Number(pago.monto ?? 0),
+      (pago) => Number(pago.propinaMonto ?? 0),
+      'same-or-null',
+    );
+    const brutoByMethodAlways = this.calculateBaseTotalsByMethod(
+      pagos,
+      (pago) => Number(pago.monto ?? 0),
+      (pago) => Number(pago.propinaMonto ?? 0),
+      'always',
+    );
+    const selectedPolicy = this.chooseTipDiscountPolicy(
+      brutoByMethodNever,
+      brutoByMethodDefault,
+      brutoByMethodAlways,
+      targetBruto,
+    );
+    const brutoByMethod = selectedPolicy === 'never'
+      ? brutoByMethodNever
+      : selectedPolicy === 'always'
+        ? brutoByMethodAlways
+        : brutoByMethodDefault;
+    const netoByMethod = this.calculateBaseTotalsByMethod(
+      pagos,
+      (pago) => Number(pago.montoNeto ?? 0),
+      (pago) => Number(pago.propinaNeto ?? pago.propinaMonto ?? 0),
+      selectedPolicy,
+    );
+
+    const tarjetaBrutoRedondeado = this.roundCurrency(brutoByMethod.tarjeta);
+    const tarjetaNetoRedondeado = this.roundCurrency(netoByMethod.tarjeta);
+    const efectivoRedondeado = this.roundCurrency(brutoByMethod.efectivo);
+    const pagosTarjeta = pagos.filter(
+      (pago) => this.resolvePaymentMethod(pago.metodoPago?.nombre) === 'tarjeta',
+    );
+
+    const totalBruto = this.roundCurrency(tarjetaBrutoRedondeado + efectivoRedondeado);
+    const brutoFallback = totalBruto > 0 ? totalBruto : this.roundCurrency(Number(venta.totalCuenta ?? 0));
+    const netoFallback = this.roundCurrency(tarjetaNetoRedondeado + efectivoRedondeado);
+    const totalNeto = netoFallback > 0 ? netoFallback : brutoFallback;
+
+    let tipoPago: OrderRow['tipoPago'] = 'efectivo';
+    if (tarjetaBrutoRedondeado > 0 && efectivoRedondeado > 0) {
+      tipoPago = 'mixto';
+    } else if (tarjetaBrutoRedondeado > 0) {
+      tipoPago = 'tarjeta';
+    }
+
+    return {
+      id: `order-${venta.id}`,
+      mesa: `Mesa ${venta.mesa?.numero ?? '-'}`,
+      pedido: venta.id,
+      jornadaFecha,
+      totalBruto: brutoFallback,
+      totalNeto,
+      tipoPago,
+      efectivoAmount: tipoPago !== 'tarjeta'
+        ? (tipoPago === 'efectivo' ? brutoFallback : efectivoRedondeado)
+        : undefined,
+      tarjetaBruto: tipoPago !== 'efectivo'
+        ? (tipoPago === 'tarjeta' ? brutoFallback : tarjetaBrutoRedondeado)
+        : undefined,
+      tarjetaNeto: tipoPago !== 'efectivo'
+        ? (tipoPago === 'tarjeta' ? totalNeto : tarjetaNetoRedondeado)
+        : undefined,
+      tarjetaComisionPorcentaje: this.resolveOrderCardCommission(pagosTarjeta, selectedPolicy),
+      dishes,
+    };
+  }
+
+  private calculateBaseTotalsByMethod(
+    pagos: PagoApi[],
+    amountSelector: (pago: PagoApi) => number,
+    tipSelector: (pago: PagoApi) => number,
+    tipDiscountPolicy: TipDiscountPolicy,
+  ): Record<PaymentMethodKey, number> {
+    const totals: Record<PaymentMethodKey, number> = { efectivo: 0, tarjeta: 0 };
+    for (const pago of pagos) {
+      const paymentMethod = this.resolvePaymentMethod(pago.metodoPago?.nombre);
+      if (!paymentMethod) {
+        continue;
+      }
+
+      const amount = this.toFiniteNumber(amountSelector(pago));
+      const tip = this.normalizeTipValue(pago, this.toFiniteNumber(tipSelector(pago)));
+      const tipMethod = this.resolvePaymentMethod(pago.propinaMetodoPago?.nombre);
+      const shouldSubtractTip =
+        tipDiscountPolicy !== 'never' &&
+        tip > 0 &&
+        amount + 0.0001 >= tip &&
+        (tipDiscountPolicy === 'always' || tipMethod === paymentMethod || tipMethod === null);
+      const baseAmount = shouldSubtractTip ? Math.max(0, amount - tip) : amount;
+      totals[paymentMethod] = this.toFiniteNumber(totals[paymentMethod]) + baseAmount;
+    }
+
+    return totals;
+  }
+
+  private chooseTipDiscountPolicy(
+    neverTotals: Record<PaymentMethodKey, number>,
+    defaultTotals: Record<PaymentMethodKey, number>,
+    alwaysTotals: Record<PaymentMethodKey, number>,
+    targetBruto: number,
+  ): TipDiscountPolicy {
+    if (!(targetBruto > 0)) {
+      return 'never';
+    }
+    const candidates: Array<{ policy: TipDiscountPolicy; diff: number }> = [
+      { policy: 'never', diff: Math.abs(this.sumTotals(neverTotals) - targetBruto) },
+      { policy: 'same-or-null', diff: Math.abs(this.sumTotals(defaultTotals) - targetBruto) },
+      { policy: 'always', diff: Math.abs(this.sumTotals(alwaysTotals) - targetBruto) },
+    ];
+    candidates.sort((a, b) => a.diff - b.diff);
+    return candidates[0]?.policy ?? 'never';
+  }
+
+  private resolveOrderCardCommission(
+    pagosTarjeta: PagoApi[],
+    tipDiscountPolicy: TipDiscountPolicy,
+  ): number | undefined {
+    if (!pagosTarjeta.length) {
+      return undefined;
+    }
+
+    let weightedRateSum = 0;
+    let weightSum = 0;
+    for (const pago of pagosTarjeta) {
+      const rate = this.toFiniteNumber(Number(pago.comisionPorcentaje ?? 0));
+      const amount = this.toFiniteNumber(Number(pago.monto ?? 0));
+      const tip = this.normalizeTipValue(pago, this.toFiniteNumber(Number(pago.propinaMonto ?? 0)));
+      const tipMethod = this.resolvePaymentMethod(pago.propinaMetodoPago?.nombre);
+      const shouldSubtractTip =
+        tipDiscountPolicy !== 'never' &&
+        tip > 0 &&
+        amount + 0.0001 >= tip &&
+        (tipDiscountPolicy === 'always' || tipMethod === 'tarjeta' || tipMethod === null);
+      const weight = shouldSubtractTip ? Math.max(0, amount - tip) : amount;
+      if (rate < 0 || weight <= 0) {
+        continue;
+      }
+      weightedRateSum += rate * weight;
+      weightSum += weight;
+    }
+
+    if (weightSum <= 0) {
+      return undefined;
+    }
+    return this.roundCurrency(weightedRateSum / weightSum);
+  }
+
+  private resolvePaymentMethod(methodName: string | undefined | null): PaymentMethodKey | null {
+    const normalized = (methodName ?? '').toLowerCase();
+    if (normalized.includes('tarjeta')) {
+      return 'tarjeta';
+    }
+    if (normalized.includes('efectivo')) {
+      return 'efectivo';
+    }
+    return null;
+  }
+
+  private normalizeTipValue(pago: PagoApi, tipValue: number): number {
+    const tipAmount = this.toFiniteNumber(Number(pago.propinaMonto ?? 0));
+    if (tipAmount <= 0) {
+      return Math.max(0, tipValue);
+    }
+    return Math.min(Math.max(0, tipValue), tipAmount);
+  }
+
+  private resolveFondoByDate(parametros: ParametrosLocalApi, isoDate: string, fallback: number): number {
+    const fecha = this.parseIsoDate(isoDate);
+    const baseFallback = Number.isFinite(fallback) ? fallback : Number(parametros.fondoLunes ?? 0);
+    const fondoPorDia = {
+      0: Number(parametros.fondoDomingo ?? baseFallback),
+      1: Number(parametros.fondoLunes ?? baseFallback),
+      2: Number(parametros.fondoMartes ?? baseFallback),
+      3: Number(parametros.fondoMiercoles ?? baseFallback),
+      4: Number(parametros.fondoJueves ?? baseFallback),
+      5: Number(parametros.fondoViernes ?? baseFallback),
+      6: Number(parametros.fondoSabado ?? baseFallback),
+    } as const;
+    const resolved = fondoPorDia[fecha.getDay() as keyof typeof fondoPorDia];
+    return this.roundCurrency(Number.isFinite(resolved) ? resolved : baseFallback);
+  }
+
+  private sumTotals(totals: Record<PaymentMethodKey, number>): number {
+    return this.roundCurrency(Number(totals.efectivo ?? 0) + Number(totals.tarjeta ?? 0));
+  }
+
+  private roundCurrency(value: number): number {
+    if (!Number.isFinite(value)) {
+      return 0;
+    }
+    return Math.round((value + Number.EPSILON) * 100) / 100;
+  }
+
+  private toFiniteNumber(value: number): number {
+    return Number.isFinite(value) ? value : 0;
+  }
+
   private formatMoney(value: number): string {
-    return `$${value.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const normalized = this.roundCurrency(value);
+    return `$${normalized.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  }
+
+  private formatDate(rawDate: string): string {
+    const iso = this.isoDateKey(rawDate);
+    if (!iso || iso.length < 10) return iso;
+    const [, month, day] = iso.split('-');
+    const year = iso.slice(0, 4);
+    return `${day}/${month}/${year}`;
+  }
+
+  private isoDateKey(rawDate: string): string {
+    return (rawDate ?? '').toString().slice(0, 10);
+  }
+
+  private parseIsoDate(rawDate: string): Date {
+    const normalized = this.isoDateKey(rawDate);
+    const parsed = new Date(`${normalized}T00:00:00`);
+    return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
   }
 }

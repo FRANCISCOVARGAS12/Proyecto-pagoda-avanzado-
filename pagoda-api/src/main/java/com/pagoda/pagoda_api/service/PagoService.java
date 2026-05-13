@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -20,6 +21,7 @@ public class PagoService {
 
     private final PagoRepository pagoRepository;
     private final ResumenPropinaDiarioService resumenPropinaDiarioService;
+    private final ParametrosLocalService parametrosLocalService;
     private final SimpMessagingTemplate messagingTemplate;
 
     public List<Pago> listarPorVenta(Integer ventaId) {
@@ -45,11 +47,61 @@ public class PagoService {
 
         BigDecimal propinaMonto = normalizeMoney(pago.getPropinaMonto());
         pago.setPropinaMonto(propinaMonto);
-        pago.setPropinaNeto(resolveTipNet(pago, propinaMonto, comision));
+        pago.setPropinaNeto(normalizeTipNet(resolveTipNet(pago, propinaMonto, comision), propinaMonto));
 
         Pago saved = pagoRepository.save(pago);
         publishPropinasUpdate();
         return saved;
+    }
+
+    public void normalizeSalePaymentsIfNeeded(Integer ventaId, BigDecimal totalCuentaVenta) {
+        if (ventaId == null || totalCuentaVenta == null || totalCuentaVenta.compareTo(BigDecimal.ZERO) <= 0) {
+            return;
+        }
+
+        List<Pago> pagos = pagoRepository.findByVentaId(ventaId);
+        if (pagos.isEmpty()) {
+            return;
+        }
+
+        BigDecimal targetBaseTotal = normalizeMoney(totalCuentaVenta);
+        BigDecimal currentBaseTotal = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        BigDecimal adjustedBaseTotal = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        for (Pago pago : pagos) {
+            BigDecimal currentAmount = normalizeMoney(pago.getMonto());
+            BigDecimal tipAmount = normalizeMoney(pago.getPropinaMonto());
+            currentBaseTotal = currentBaseTotal.add(currentAmount);
+            adjustedBaseTotal = adjustedBaseTotal.add(extractBaseAmount(currentAmount, tipAmount));
+        }
+
+        boolean separateTipFromAmount = isAdjustmentCloserToTarget(targetBaseTotal, currentBaseTotal, adjustedBaseTotal);
+        List<Pago> pagosActualizados = new ArrayList<>();
+
+        for (Pago pago : pagos) {
+            BigDecimal tipAmount = normalizeMoney(pago.getPropinaMonto());
+            BigDecimal amount = normalizeMoney(pago.getMonto());
+
+            if (separateTipFromAmount) {
+                amount = extractBaseAmount(amount, tipAmount);
+                pago.setMonto(amount);
+                pago.setMontoNeto(calculateNetAmount(amount, normalizePercentage(pago.getComisionPorcentaje())));
+            }
+
+            BigDecimal tipNet = normalizeTipNet(resolveTipNet(pago, tipAmount, normalizePercentage(pago.getComisionPorcentaje())), tipAmount);
+            if (pago.getPropinaNeto() == null || pago.getPropinaNeto().compareTo(tipNet) != 0) {
+                pago.setPropinaNeto(tipNet);
+                pagosActualizados.add(pago);
+                continue;
+            }
+
+            if (separateTipFromAmount) {
+                pagosActualizados.add(pago);
+            }
+        }
+
+        if (!pagosActualizados.isEmpty()) {
+            pagoRepository.saveAll(pagosActualizados);
+        }
     }
 
     private BigDecimal normalizeMoney(BigDecimal value) {
@@ -61,9 +113,9 @@ public class PagoService {
 
     private BigDecimal normalizePercentage(BigDecimal value) {
         if (value == null || value.compareTo(BigDecimal.ZERO) < 0) {
-            return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+            return BigDecimal.ZERO;
         }
-        return value.setScale(2, RoundingMode.HALF_UP);
+        return value.stripTrailingZeros();
     }
 
     private BigDecimal calculateNetAmount(BigDecimal amount, BigDecimal percentage) {
@@ -78,17 +130,82 @@ public class PagoService {
             return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
         }
 
-        if (isCardMethod(pago.getPropinaMetodoPago() == null ? null : pago.getPropinaMetodoPago().getNombre())) {
-            if (isCardMethod(pago.getMetodoPago() == null ? null : pago.getMetodoPago().getNombre())) {
-                return calculateNetAmount(tipAmount, commission);
+        String tipMethodName = pago.getPropinaMetodoPago() == null
+                ? null
+                : pago.getPropinaMetodoPago().getNombre();
+        if (tipMethodName == null || tipMethodName.isBlank()) {
+            tipMethodName = pago.getMetodoPago() == null ? null : pago.getMetodoPago().getNombre();
+        }
+
+        BigDecimal providedTipNet = pago.getPropinaNeto();
+        if (providedTipNet != null) {
+            BigDecimal normalizedProvided = normalizeMoney(providedTipNet);
+            if (normalizedProvided.compareTo(BigDecimal.ZERO) > 0
+                    && normalizedProvided.compareTo(tipAmount) < 0) {
+                return normalizedProvided;
             }
-            if (pago.getPropinaNeto() != null && pago.getPropinaNeto().compareTo(BigDecimal.ZERO) > 0) {
-                return normalizeMoney(pago.getPropinaNeto());
+        }
+
+        if (isCardMethod(tipMethodName)) {
+            BigDecimal tipCommission = resolveTipCommission(commission);
+            if (providedTipNet != null) {
+                BigDecimal normalizedProvided = normalizeMoney(providedTipNet);
+                if (normalizedProvided.compareTo(BigDecimal.ZERO) > 0
+                        && normalizedProvided.compareTo(tipAmount) <= 0
+                        && (normalizedProvided.compareTo(tipAmount) < 0
+                        || tipCommission.compareTo(BigDecimal.ZERO) == 0)) {
+                    return normalizedProvided;
+                }
             }
-            return tipAmount;
+
+            return calculateNetAmount(tipAmount, tipCommission);
         }
 
         return tipAmount;
+    }
+
+    private BigDecimal resolveTipCommission(BigDecimal paymentCommission) {
+        BigDecimal normalizedPaymentCommission = normalizePercentage(paymentCommission);
+        if (normalizedPaymentCommission.compareTo(BigDecimal.ZERO) > 0) {
+            return normalizedPaymentCommission;
+        }
+
+        try {
+            return normalizePercentage(parametrosLocalService.obtener().getComisionBancaria());
+        } catch (RuntimeException ignored) {
+            return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        }
+    }
+
+    private BigDecimal normalizeTipNet(BigDecimal tipNet, BigDecimal tipAmount) {
+        if (tipAmount.compareTo(BigDecimal.ZERO) <= 0) {
+            return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        }
+
+        BigDecimal normalizedTipNet = normalizeMoney(tipNet);
+        if (normalizedTipNet.compareTo(BigDecimal.ZERO) < 0) {
+            return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        }
+        if (normalizedTipNet.compareTo(tipAmount) > 0) {
+            return tipAmount;
+        }
+        return normalizedTipNet;
+    }
+
+    private BigDecimal extractBaseAmount(BigDecimal amount, BigDecimal tipAmount) {
+        if (tipAmount.compareTo(BigDecimal.ZERO) <= 0) {
+            return amount;
+        }
+        if (amount.compareTo(tipAmount) < 0) {
+            return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        }
+        return amount.subtract(tipAmount).setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private boolean isAdjustmentCloserToTarget(BigDecimal target, BigDecimal current, BigDecimal adjusted) {
+        BigDecimal currentDiff = current.subtract(target).abs();
+        BigDecimal adjustedDiff = adjusted.subtract(target).abs();
+        return adjustedDiff.add(new BigDecimal("0.01")).compareTo(currentDiff) < 0;
     }
 
     private boolean isCardMethod(String methodName) {

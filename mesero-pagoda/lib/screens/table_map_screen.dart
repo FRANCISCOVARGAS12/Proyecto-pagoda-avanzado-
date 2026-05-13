@@ -1,6 +1,9 @@
 // lib/screens/table_map_screen.dart
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 import 'package:provider/provider.dart';
 import '../theme/app_theme.dart';
 import '../models/models.dart';
@@ -1336,6 +1339,269 @@ class _TableMapScreenState extends State<TableMapScreen>
     );
   }
 
+  void _showToolsSheet(BuildContext context) {
+    final provider = context.read<OrderProvider>();
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => Container(
+        padding: const EdgeInsets.fromLTRB(24, 28, 24, 40),
+        decoration: const BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              margin: const EdgeInsets.only(bottom: 24),
+              decoration: BoxDecoration(
+                color: AppColors.surfaceElevated,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const Text(
+              'Herramientas',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w300,
+                color: AppColors.gold,
+              ),
+            ),
+            const SizedBox(height: 20),
+            _OptionTile(
+              icon: Icons.receipt_long_outlined,
+              label: 'Recuperar tickets',
+              subtitle: 'Reimprimir pedidos cerrados de la jornada',
+              color: AppColors.gold,
+              onTap: () {
+                Navigator.pop(context);
+                _showTicketRecovery(context, provider);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showTicketRecovery(BuildContext context, OrderProvider provider) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => Container(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.78,
+        ),
+        padding: const EdgeInsets.fromLTRB(24, 28, 24, 40),
+        decoration: const BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+        child: FutureBuilder<List<ClosedTicket>>(
+          future: provider.cargarTicketsJornadaActual(),
+          builder: (ctx, snapshot) {
+            final loading = snapshot.connectionState != ConnectionState.done;
+            final tickets = snapshot.data ?? [];
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 24),
+                  decoration: BoxDecoration(
+                    color: AppColors.surfaceElevated,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const Text(
+                  'Tickets de la jornada',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w300,
+                    color: AppColors.gold,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                if (loading)
+                  const Padding(
+                    padding: EdgeInsets.all(24),
+                    child: CircularProgressIndicator(color: AppColors.gold),
+                  )
+                else if (tickets.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.all(24),
+                    child: Text(
+                      'No hay tickets cerrados en la jornada actual.',
+                      style: TextStyle(
+                        color: AppColors.textMuted,
+                        fontWeight: FontWeight.w300,
+                      ),
+                    ),
+                  )
+                else
+                  Flexible(
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: tickets.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 10),
+                      itemBuilder: (_, index) {
+                        final ticket = tickets[index];
+                        return _RecoveredTicketTile(
+                          ticket: ticket,
+                          onTap: () => _printClosedTicket(provider, ticket),
+                        );
+                      },
+                    ),
+                  ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Future<void> _printClosedTicket(
+    OrderProvider provider,
+    ClosedTicket ticket,
+  ) async {
+    await provider.refreshCommission();
+
+    final pdf = pw.Document();
+    final closedAt = ticket.closedAt ?? DateTime.now();
+    final date =
+        '${closedAt.day.toString().padLeft(2, '0')}/${closedAt.month.toString().padLeft(2, '0')}/${closedAt.year}  '
+        '${closedAt.hour.toString().padLeft(2, '0')}:${closedAt.minute.toString().padLeft(2, '0')}';
+    final efectivo = ticket.payments
+        .where((payment) => payment.method == PaymentMethod.efectivo)
+        .fold(0.0, (sum, payment) => sum + payment.amount);
+    final tarjeta = ticket.payments
+        .where((payment) => payment.method == PaymentMethod.tarjeta)
+        .fold(0.0, (sum, payment) => sum + payment.amount);
+
+    pdf.addPage(
+      pw.Page(
+        pageFormat: PdfPageFormat.roll80,
+        margin: const pw.EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        build: (_) => pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.center,
+          children: [
+            pw.Text(
+              'PAGODA',
+              style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold),
+            ),
+            pw.Text(provider.receiptHeader, style: pw.TextStyle(fontSize: 9)),
+            pw.SizedBox(height: 6),
+            pw.Divider(),
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Text(ticket.tableName, style: pw.TextStyle(fontSize: 10)),
+                pw.Text(date, style: pw.TextStyle(fontSize: 8)),
+              ],
+            ),
+            pw.SizedBox(height: 2),
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Text('Folio #${ticket.folio}',
+                    style: pw.TextStyle(fontSize: 8)),
+                pw.Text('Mesero: ${ticket.waiterName}',
+                    style: pw.TextStyle(fontSize: 8)),
+              ],
+            ),
+            pw.Divider(),
+            pw.SizedBox(height: 4),
+            ...ticket.items.map(
+              (item) => pw.Padding(
+                padding: const pw.EdgeInsets.symmetric(vertical: 2),
+                child: pw.Row(
+                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                  children: [
+                    pw.Expanded(
+                      child: pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.start,
+                        children: [
+                          pw.Text(item.name, style: pw.TextStyle(fontSize: 10)),
+                          if (item.diner != null)
+                            pw.Text(
+                              '  Comensal ${item.diner}',
+                              style: pw.TextStyle(
+                                fontSize: 8,
+                                color: PdfColors.grey600,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    pw.Text(
+                      '\$${item.price.toStringAsFixed(2)}',
+                      style: pw.TextStyle(fontSize: 10),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            pw.SizedBox(height: 6),
+            pw.Divider(thickness: 1.5),
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Text(
+                  'TOTAL',
+                  style: pw.TextStyle(
+                      fontSize: 13, fontWeight: pw.FontWeight.bold),
+                ),
+                pw.Text(
+                  '\$${ticket.subtotal.toStringAsFixed(2)}',
+                  style: pw.TextStyle(
+                      fontSize: 13, fontWeight: pw.FontWeight.bold),
+                ),
+              ],
+            ),
+            pw.SizedBox(height: 3),
+            if (efectivo > 0)
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Text('Efectivo:',
+                      style:
+                          pw.TextStyle(fontSize: 8, color: PdfColors.grey600)),
+                  pw.Text('\$${efectivo.toStringAsFixed(2)}',
+                      style:
+                          pw.TextStyle(fontSize: 8, color: PdfColors.grey600)),
+                ],
+              ),
+            if (tarjeta > 0)
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Text('Tarjeta:',
+                      style:
+                          pw.TextStyle(fontSize: 8, color: PdfColors.grey600)),
+                  pw.Text('\$${tarjeta.toStringAsFixed(2)}',
+                      style:
+                          pw.TextStyle(fontSize: 8, color: PdfColors.grey600)),
+                ],
+              ),
+            pw.SizedBox(height: 10),
+            pw.Text(
+              provider.receiptFooter,
+              style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    await Printing.layoutPdf(onLayout: (_) async => pdf.save());
+  }
+
   // ── Build ─────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
@@ -1401,37 +1667,61 @@ class _TableMapScreenState extends State<TableMapScreen>
               ),
             ],
           ),
-          GestureDetector(
-            onTap: () {
-              context.read<OrderProvider>().logout();
-              Navigator.of(context).pushAndRemoveUntil(
-                PageRouteBuilder(
-                  pageBuilder: (_, a, __) => const LoginScreen(),
-                  transitionDuration: const Duration(milliseconds: 400),
-                  transitionsBuilder: (_, a, __, child) => FadeTransition(
-                    opacity: CurvedAnimation(parent: a, curve: Curves.easeOut),
-                    child: child,
+          Row(
+            children: [
+              GestureDetector(
+                onTap: () => _showToolsSheet(context),
+                child: Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: AppColors.surface,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: AppColors.surfaceElevated),
+                  ),
+                  child: const Icon(
+                    Icons.settings_outlined,
+                    color: AppColors.textSecondary,
+                    size: 18,
                   ),
                 ),
-                (route) => false,
-              );
-            },
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                color: AppColors.surface,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: AppColors.surfaceElevated),
               ),
-              child: const Text(
-                'Salir',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: AppColors.textSecondary,
-                  fontWeight: FontWeight.w300,
+              const SizedBox(width: 8),
+              GestureDetector(
+                onTap: () {
+                  context.read<OrderProvider>().logout();
+                  Navigator.of(context).pushAndRemoveUntil(
+                    PageRouteBuilder(
+                      pageBuilder: (_, a, __) => const LoginScreen(),
+                      transitionDuration: const Duration(milliseconds: 400),
+                      transitionsBuilder: (_, a, __, child) => FadeTransition(
+                        opacity:
+                            CurvedAnimation(parent: a, curve: Curves.easeOut),
+                        child: child,
+                      ),
+                    ),
+                    (route) => false,
+                  );
+                },
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: AppColors.surface,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: AppColors.surfaceElevated),
+                  ),
+                  child: const Text(
+                    'Salir',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: AppColors.textSecondary,
+                      fontWeight: FontWeight.w300,
+                    ),
+                  ),
                 ),
               ),
-            ),
+            ],
           ),
         ],
       ),
@@ -1913,6 +2203,83 @@ class _OptionTile extends StatelessWidget {
           ),
         ),
       );
+}
+
+class _RecoveredTicketTile extends StatelessWidget {
+  final ClosedTicket ticket;
+  final VoidCallback onTap;
+
+  const _RecoveredTicketTile({
+    required this.ticket,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final closedAt = ticket.closedAt;
+    final timeLabel = closedAt == null
+        ? ''
+        : '${closedAt.hour.toString().padLeft(2, '0')}:${closedAt.minute.toString().padLeft(2, '0')}';
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: AppColors.background,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AppColors.surfaceElevated),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: AppColors.gold.withOpacity(0.12),
+                border: Border.all(color: AppColors.gold.withOpacity(0.35)),
+              ),
+              child: const Icon(
+                Icons.print_outlined,
+                color: AppColors.gold,
+                size: 18,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Folio #${ticket.folio} · ${ticket.tableName}',
+                    style: const TextStyle(
+                      color: AppColors.textPrimary,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w400,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '${ticket.items.length} platillo(s) · \$${ticket.subtotal.toStringAsFixed(2)}${timeLabel.isEmpty ? '' : ' · $timeLabel'}',
+                    style: const TextStyle(
+                      color: AppColors.textMuted,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w300,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(
+              Icons.chevron_right,
+              color: AppColors.textMuted,
+              size: 18,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _SimpleConfirmDialog extends StatelessWidget {

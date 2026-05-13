@@ -24,8 +24,11 @@ class OrderProvider extends ChangeNotifier {
   String? _logoutReason;
 
   double _cardCommissionPercent = 3.5;
+  String _receiptHeader = 'Restaurante Asiático';
+  String _receiptFooter = '¡Gracias por su visita!';
   final Map<String, int> _metodoPagoIds = {};
   final Map<String, int> _tipoCobroIds = {};
+  final Map<int, int> _ventaAbiertaPorMesaId = {};
   int? _estadoItemEnviadoId;
 
   BoardTable? get currentTable => _currentTable;
@@ -34,6 +37,8 @@ class OrderProvider extends ChangeNotifier {
   bool get isLoading => _isLoading;
   bool get isAuthenticated => _token != null && _usuarioId != null;
   String get waiterName => _usuarioNombre ?? 'Mesero';
+  String get receiptHeader => _receiptHeader;
+  String get receiptFooter => _receiptFooter;
   List<Map<String, dynamic>> get menuItems => _menuItems;
   List<String> get menuCategories => _menuCategories;
   String? get logoutReason => _logoutReason;
@@ -135,8 +140,7 @@ class OrderProvider extends ChangeNotifier {
       final name = p['nombre']?.toString();
       final category = p['categoria'] as Map<String, dynamic>?;
       final categoryId = (category?['id'] as num?)?.toInt();
-      final categoryName =
-          category?['nombre']?.toString() ??
+      final categoryName = category?['nombre']?.toString() ??
           (categoryId != null ? categoryById[categoryId] : null);
       if (id == null ||
           priceNum == null ||
@@ -190,8 +194,7 @@ class OrderProvider extends ChangeNotifier {
       final serverStatus = _mapMesaStatus(
         (mesa['estado'] as Map<String, dynamic>?)?['nombre']?.toString(),
       );
-      final keepLocalState =
-          prev != null &&
+      final keepLocalState = prev != null &&
           (prev.orders.isNotEmpty ||
               prev.guests > 0 ||
               prev.status != TableStatus.libre);
@@ -201,7 +204,7 @@ class OrderProvider extends ChangeNotifier {
           name: 'Mesa $number',
           backendId: id,
           tableNumber: number,
-          status: keepLocalState ? prev!.status : serverStatus,
+          status: keepLocalState ? prev.status : serverStatus,
           guests: prev?.guests ?? 0,
           tipAmount: prev?.tipAmount ?? 0,
           orders: prev?.orders ?? [],
@@ -232,9 +235,7 @@ class OrderProvider extends ChangeNotifier {
     _metodoPagoIds
       ..clear()
       ..addEntries(
-        metodos
-            .where((m) => m['id'] != null && m['nombre'] != null)
-            .map(
+        metodos.where((m) => m['id'] != null && m['nombre'] != null).map(
               (m) => MapEntry(
                 m['nombre'].toString().toUpperCase(),
                 (m['id'] as num).toInt(),
@@ -245,9 +246,7 @@ class OrderProvider extends ChangeNotifier {
     _tipoCobroIds
       ..clear()
       ..addEntries(
-        tiposCobro
-            .where((t) => t['id'] != null && t['nombre'] != null)
-            .map(
+        tiposCobro.where((t) => t['id'] != null && t['nombre'] != null).map(
               (t) => MapEntry(
                 t['nombre'].toString().toUpperCase(),
                 (t['id'] as num).toInt(),
@@ -270,36 +269,64 @@ class OrderProvider extends ChangeNotifier {
     try {
       final params = await _getApiData(ApiConfig.parametrosOperacion);
       if (params is! Map<String, dynamic>) return;
+      var changed = false;
       final commission = (params['comisionBancaria'] as num?)?.toDouble();
-      if (commission != null && commission >= 0) {
+      if (commission != null &&
+          commission >= 0 &&
+          commission != _cardCommissionPercent) {
         _cardCommissionPercent = commission;
+        changed = true;
+      }
+      final header = params['encabezadoTicket']?.toString().trim();
+      if (header != null && header.isNotEmpty && header != _receiptHeader) {
+        _receiptHeader = header;
+        changed = true;
+      }
+      final footer = params['pieTicket']?.toString().trim();
+      if (footer != null && footer.isNotEmpty && footer != _receiptFooter) {
+        _receiptFooter = footer;
+        changed = true;
+      }
+      if (changed) {
+        notifyListeners();
       }
     } catch (_) {
       _cardCommissionPercent = 3.5;
     }
   }
 
-  Future<void> registrarVenta({
+  Future<int> registrarVenta({
     required ChargeMode mode,
     required List<PaymentRecord> payments,
     required double totalCuenta,
   }) async {
-    _ensureAuthenticated();
-    final table = _currentTable;
-    if (table == null || table.backendId == null) {
-      throw Exception('No hay mesa activa para registrar la venta.');
-    }
-    if (_usuarioId == null) {
-      throw Exception('No hay sesión de mesero activa.');
-    }
     if (payments.isEmpty) {
       throw Exception('No hay pagos para registrar.');
     }
-    if (_estadoItemEnviadoId == null ||
-        _metodoPagoIds.isEmpty ||
-        _tipoCobroIds.isEmpty) {
-      await refreshCatalogCaches();
+
+    final ventaId = await iniciarVentaParaCobro(
+      mode: mode,
+      totalCuenta: totalCuenta,
+    );
+    await registrarPagosVenta(ventaId, payments);
+    await cerrarVentaRegistrada(ventaId);
+    return ventaId;
+  }
+
+  Future<int> iniciarVentaParaCobro({
+    required ChargeMode mode,
+    required double totalCuenta,
+  }) async {
+    _ensureAuthenticated();
+    final table = _requireCurrentTable();
+    if (_usuarioId == null) {
+      throw Exception('No hay sesión de mesero activa.');
     }
+    final existingVentaId = _ventaAbiertaPorMesaId[table.backendId];
+    if (existingVentaId != null) {
+      return existingVentaId;
+    }
+    await _ensureCatalogCachesReady();
 
     final tipoCobroNombre = switch (mode) {
       ChargeMode.total => 'TOTAL',
@@ -325,6 +352,54 @@ class OrderProvider extends ChangeNotifier {
       throw Exception('No se pudo obtener el ID de la venta creada.');
     }
 
+    await _registrarItemsVenta(ventaId, table);
+    _ventaAbiertaPorMesaId[table.backendId!] = ventaId;
+    return ventaId;
+  }
+
+  Future<void> registrarPagosVenta(
+    int ventaId,
+    List<PaymentRecord> payments,
+  ) async {
+    _ensureAuthenticated();
+    if (payments.isEmpty) {
+      throw Exception('No hay pagos para registrar.');
+    }
+    await _ensureCatalogCachesReady();
+
+    for (final payment in payments) {
+      await _registrarPagoVenta(ventaId, payment);
+    }
+  }
+
+  Future<void> cerrarVentaRegistrada(int ventaId) async {
+    _ensureAuthenticated();
+    await _putApiData(ApiConfig.cerrarVenta(ventaId), {});
+    _ventaAbiertaPorMesaId
+        .removeWhere((_, openVentaId) => openVentaId == ventaId);
+  }
+
+  Future<void> _ensureCatalogCachesReady() async {
+    if (_estadoItemEnviadoId == null ||
+        _metodoPagoIds.isEmpty ||
+        _tipoCobroIds.isEmpty) {
+      await refreshCatalogCaches();
+    }
+  }
+
+  BoardTable _requireCurrentTable() {
+    final table = _currentTable;
+    if (table == null || table.backendId == null) {
+      throw Exception('No hay mesa activa para registrar la venta.');
+    }
+    return table;
+  }
+
+  Future<void> _registrarItemsVenta(int ventaId, BoardTable table) async {
+    if (_estadoItemEnviadoId == null) {
+      throw Exception('No se encontró el estado ENVIADO en catálogo.');
+    }
+
     for (final item in table.orders) {
       if (item.productId == null) {
         throw Exception('Producto sin ID de API en la orden: ${item.name}.');
@@ -339,56 +414,123 @@ class OrderProvider extends ChangeNotifier {
         'estadoItem': {'id': _estadoItemEnviadoId},
       });
     }
+  }
 
-    for (final payment in payments) {
-      final methodName = payment.method == PaymentMethod.tarjeta
-          ? 'TARJETA'
-          : 'EFECTIVO';
-      final methodId = _metodoPagoIds[methodName];
-      if (methodId == null) {
-        throw Exception(
-          'No se encontró método de pago $methodName en catálogo.',
-        );
-      }
-
-      final commission = payment.method == PaymentMethod.tarjeta
-          ? _cardCommissionPercent
-          : 0.0;
-      final net = _netAfterCommission(payment.amount, commission);
-      final tipAmount = payment.tipAmount <= 0
-          ? 0.0
-          : _round2(payment.tipAmount);
-      final effectiveTipMethod = payment.tipMethod ?? payment.method;
-      final tipMethodName = effectiveTipMethod == PaymentMethod.tarjeta
-          ? 'TARJETA'
-          : 'EFECTIVO';
-      final tipMethodId = _metodoPagoIds[tipMethodName];
-      if (tipMethodId == null) {
-        throw Exception(
-          'No se encontró método de pago $tipMethodName para la propina.',
-        );
-      }
-      final tipCommission = effectiveTipMethod == PaymentMethod.tarjeta
-          ? _cardCommissionPercent
-          : 0.0;
-      final tipNet = tipAmount <= 0
-          ? 0.0
-          : _netAfterCommission(tipAmount, tipCommission);
-
-      await _postApiData(ApiConfig.crearVentaPago, {
-        'venta': {'id': ventaId},
-        'numeroComensal': payment.diner,
-        'metodoPago': {'id': methodId},
-        'monto': _round2(payment.amount),
-        'comisionPorcentaje': _round2(commission),
-        'montoNeto': net,
-        'propinaMonto': tipAmount,
-        'propinaMetodoPago': {'id': tipMethodId},
-        'propinaNeto': tipNet,
-      });
+  Future<void> _registrarPagoVenta(int ventaId, PaymentRecord payment) async {
+    final methodName =
+        payment.method == PaymentMethod.tarjeta ? 'TARJETA' : 'EFECTIVO';
+    final methodId = _metodoPagoIds[methodName];
+    if (methodId == null) {
+      throw Exception(
+        'No se encontró método de pago $methodName en catálogo.',
+      );
     }
 
-    await _putApiData(ApiConfig.cerrarVenta(ventaId), {});
+    final commission =
+        payment.method == PaymentMethod.tarjeta ? _cardCommissionPercent : 0.0;
+    final net = _netAfterCommission(payment.amount, commission);
+    final tipAmount = payment.tipAmount <= 0 ? 0.0 : _round2(payment.tipAmount);
+    final effectiveTipMethod = payment.tipMethod ?? payment.method;
+    final tipMethodName =
+        effectiveTipMethod == PaymentMethod.tarjeta ? 'TARJETA' : 'EFECTIVO';
+    final tipMethodId = _metodoPagoIds[tipMethodName];
+    if (tipMethodId == null) {
+      throw Exception(
+        'No se encontró método de pago $tipMethodName para la propina.',
+      );
+    }
+    final tipCommission = effectiveTipMethod == PaymentMethod.tarjeta
+        ? _cardCommissionPercent
+        : 0.0;
+    final tipNet =
+        tipAmount <= 0 ? 0.0 : _netAfterCommission(tipAmount, tipCommission);
+
+    await _postApiData(ApiConfig.crearVentaPago, {
+      'venta': {'id': ventaId},
+      'numeroComensal': payment.diner,
+      'metodoPago': {'id': methodId},
+      'monto': _round2(payment.amount),
+      'comisionPorcentaje': _round2(commission),
+      'montoNeto': net,
+      'propinaMonto': tipAmount,
+      'propinaMetodoPago': {'id': tipMethodId},
+      'propinaNeto': tipNet,
+    });
+  }
+
+  Future<List<ClosedTicket>> cargarTicketsJornadaActual() async {
+    _ensureAuthenticated();
+    final jornada = await _getApiData(ApiConfig.jornadaEstado);
+    if (jornada is! Map<String, dynamic>) {
+      return [];
+    }
+    final jornadaId = (jornada['id'] as num?)?.toInt();
+    if (jornadaId == null) {
+      return [];
+    }
+
+    final ventas = await _getApiList(ApiConfig.ventasPorJornada(jornadaId));
+    final cerradas =
+        ventas.where((venta) => venta['fechaCierre'] != null).toList()
+          ..sort((a, b) {
+            final aId = (a['id'] as num?)?.toInt() ?? 0;
+            final bId = (b['id'] as num?)?.toInt() ?? 0;
+            return bId.compareTo(aId);
+          });
+
+    final tickets = <ClosedTicket>[];
+    for (final venta in cerradas) {
+      final ventaId = (venta['id'] as num?)?.toInt();
+      if (ventaId == null) continue;
+      final itemsRaw = await _getApiList(ApiConfig.itemsPorVenta(ventaId));
+      final pagosRaw = await _getApiList(ApiConfig.pagosPorVenta(ventaId));
+      tickets.add(_closedTicketFromApi(venta, itemsRaw, pagosRaw));
+    }
+    return tickets;
+  }
+
+  ClosedTicket _closedTicketFromApi(
+    Map<String, dynamic> venta,
+    List<Map<String, dynamic>> itemsRaw,
+    List<Map<String, dynamic>> pagosRaw,
+  ) {
+    final ventaId = (venta['id'] as num?)?.toInt() ?? 0;
+    final mesa = venta['mesa'] as Map<String, dynamic>?;
+    final mesaNumero = (mesa?['numero'] as num?)?.toInt();
+    final usuario = venta['usuario'] as Map<String, dynamic>?;
+    final closedAtRaw = venta['fechaCierre']?.toString();
+
+    final items = itemsRaw.map((item) {
+      final producto = item['producto'] as Map<String, dynamic>?;
+      final cantidad = (item['cantidad'] as num?)?.toDouble() ?? 1;
+      final precio = (item['precioUnitario'] as num?)?.toDouble() ?? 0;
+      return TicketItem(
+        name: producto?['nombre']?.toString() ?? 'Platillo',
+        price: _round2(precio * cantidad),
+        diner: (item['numeroComensal'] as num?)?.toInt(),
+      );
+    }).toList();
+
+    final payments = pagosRaw.map((pago) {
+      final metodo = pago['metodoPago'] as Map<String, dynamic>?;
+      final rawMethod = metodo?['nombre']?.toString().toLowerCase() ?? '';
+      return TicketPayment(
+        method: rawMethod.contains('tarjeta')
+            ? PaymentMethod.tarjeta
+            : PaymentMethod.efectivo,
+        amount: (pago['monto'] as num?)?.toDouble() ?? 0,
+        netAmount: (pago['montoNeto'] as num?)?.toDouble() ?? 0,
+      );
+    }).toList();
+
+    return ClosedTicket(
+      folio: ventaId,
+      tableName: mesaNumero == null ? 'Mesa' : 'Mesa $mesaNumero',
+      waiterName: usuario?['nombre']?.toString() ?? waiterName,
+      closedAt: closedAtRaw == null ? null : DateTime.tryParse(closedAtRaw),
+      items: items,
+      payments: payments,
+    );
   }
 
   void setCurrentTable(BoardTable table) {
@@ -470,7 +612,7 @@ class OrderProvider extends ChangeNotifier {
     _stopJornadaMonitor();
     if (!isAuthenticated) return;
     _jornadaMonitorTimer = Timer.periodic(
-      const Duration(seconds: 3),
+      const Duration(seconds: 1),
       (_) => unawaited(_verificarJornadaActiva()),
     );
     unawaited(_verificarJornadaActiva());
@@ -634,8 +776,8 @@ class OrderProvider extends ChangeNotifier {
       }
     }
 
-    final currentBackendId = (decoded['currentTableBackendId'] as num?)
-        ?.toInt();
+    final currentBackendId =
+        (decoded['currentTableBackendId'] as num?)?.toInt();
     if (currentBackendId != null) {
       _currentTable = _tableByBackendId(currentBackendId);
     }
@@ -690,9 +832,9 @@ class OrderProvider extends ChangeNotifier {
     final ordersRaw = raw['orders'];
     final orders = ordersRaw is List
         ? ordersRaw
-              .whereType<Map<String, dynamic>>()
-              .map(_orderItemFromJson)
-              .toList()
+            .whereType<Map<String, dynamic>>()
+            .map(_orderItemFromJson)
+            .toList()
         : <OrderItem>[];
     return BoardTable(
       id: raw['id']?.toString() ?? '',

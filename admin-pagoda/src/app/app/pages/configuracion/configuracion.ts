@@ -24,6 +24,12 @@ interface ParametrosLocalApi {
   fondoSabado: number;
   fondoDomingo: number;
   comisionBancaria: number;
+  rolPorDefecto?: string;
+  autoLogoutMinutos?: number;
+  impresoraTickets?: 'default' | 'thermal' | 'none' | string;
+  imprimirResumenCierre?: boolean;
+  encabezadoTicket?: string;
+  pieTicket?: string;
 }
 
 interface UsuarioApi {
@@ -41,6 +47,7 @@ interface RolApi {
 type ThemePreference = 'auto' | 'light' | 'dark';
 const THEME_KEY = 'pagoda-theme';
 const USER_ID_KEY = 'pagoda-user-id';
+const CONFIG_DRAFT_KEY = 'pagoda-config-draft-v1';
 
 @Component({
   selector: 'app-configuracion',
@@ -100,14 +107,6 @@ export class Configuracion implements OnInit {
       section: 'Caja y Ventas',
     },
     {
-      id: 'propina-sugerida',
-      label: 'Propina sugerida',
-      description: 'Porcentaje sugerido de propina en la venta',
-      type: 'number',
-      value: 10,
-      section: 'Caja y Ventas',
-    },
-    {
       id: 'auto-logout',
       label: 'Cierre de sesión automático',
       description: 'Desconectar por inactividad (minutos)',
@@ -152,22 +151,6 @@ export class Configuracion implements OnInit {
       value: 'Gracias por su visita. ¡Vuelva pronto!',
       section: 'Recibos',
     },
-    {
-      id: 'mostrar-num-mesa',
-      label: 'Mostrar número de mesa',
-      description: 'Incluir número de mesa en tickets de cocina',
-      type: 'toggle',
-      value: true,
-      section: 'Recibos',
-    },
-    {
-      id: 'mostrar-comision-ticket',
-      label: 'Mostrar comisión en ticket',
-      description: 'Desglosar la comisión de tarjeta en el recibo',
-      type: 'toggle',
-      value: true,
-      section: 'Recibos',
-    },
   ];
 
   protected newPin = '';
@@ -184,6 +167,7 @@ export class Configuracion implements OnInit {
     this.syncThemeOptionFromStorage();
     await this.loadConfig();
     this.syncUiOptionsFromSettings();
+    this.restoreDraftOptions();
   }
 
   protected get sections(): string[] {
@@ -221,6 +205,12 @@ export class Configuracion implements OnInit {
       fondoSabado: fondoCaja,
       fondoDomingo: fondoCaja,
       comisionBancaria: comision,
+      rolPorDefecto: this.getSelectOption('rol-por-defecto', 'MESERO').toUpperCase(),
+      autoLogoutMinutos: this.getNumericOption('auto-logout', 30),
+      impresoraTickets: this.resolvePrinterOption(),
+      imprimirResumenCierre: this.getBooleanOption('imprimir-resumen-cierre', true),
+      encabezadoTicket: this.getTextOption('receipt-header', 'Restaurante Asiático'),
+      pieTicket: this.getTextOption('receipt-footer', '¡Gracias por su visita!'),
     };
 
     try {
@@ -230,6 +220,7 @@ export class Configuracion implements OnInit {
       );
       this.backendParams = saved;
       this.persistUiSettingsFromOptions();
+      this.clearDraftOptions();
       this.toastService.success(
         wantsPinUpdate
           ? 'PIN y configuración guardados correctamente.'
@@ -246,6 +237,7 @@ export class Configuracion implements OnInit {
 
   protected onOptionValueChanged(option: ConfigOption): void {
     if (option.id !== 'theme-mode') {
+      this.persistDraftOptions();
       return;
     }
 
@@ -260,6 +252,14 @@ export class Configuracion implements OnInit {
 
       this.setOptionValue('fondo-caja', Number(params.fondoLunes));
       this.setOptionValue('comision-tarjeta', Number(params.comisionBancaria));
+      this.adminSettingsService.updateSettings({
+        defaultRoleName: (params.rolPorDefecto ?? this.adminSettingsService.snapshot().defaultRoleName).toUpperCase(),
+        autoLogoutMinutes: Number(params.autoLogoutMinutos ?? this.adminSettingsService.snapshot().autoLogoutMinutes),
+        printerTickets: this.normalizePrinterOption(params.impresoraTickets ?? this.adminSettingsService.snapshot().printerTickets),
+        printSummaryOnClose: params.imprimirResumenCierre ?? this.adminSettingsService.snapshot().printSummaryOnClose,
+        receiptHeader: params.encabezadoTicket ?? this.adminSettingsService.snapshot().receiptHeader,
+        receiptFooter: params.pieTicket ?? this.adminSettingsService.snapshot().receiptFooter,
+      });
     } catch (error) {
       const message =
         error instanceof Error && error.message
@@ -332,27 +332,70 @@ export class Configuracion implements OnInit {
     this.setOptionValue('imprimir-resumen-cierre', settings.printSummaryOnClose);
     this.setOptionValue('receipt-header', settings.receiptHeader);
     this.setOptionValue('receipt-footer', settings.receiptFooter);
-    this.setOptionValue('mostrar-num-mesa', settings.showTableNumber);
-    this.setOptionValue('mostrar-comision-ticket', settings.showTicketCommission);
-    this.setOptionValue('propina-sugerida', settings.suggestedTipPercent);
   }
 
   private persistUiSettingsFromOptions(): void {
-    const printerOption = this.getSelectOption('printer-tickets', 'default');
-    const printerTickets: 'default' | 'thermal' | 'none' =
-      printerOption === 'thermal' || printerOption === 'none' ? printerOption : 'default';
-
     this.adminSettingsService.updateSettings({
       defaultRoleName: this.getSelectOption('rol-por-defecto', 'MESERO').toUpperCase(),
       autoLogoutMinutes: this.getNumericOption('auto-logout', 30),
-      printerTickets,
+      printerTickets: this.resolvePrinterOption(),
       printSummaryOnClose: this.getBooleanOption('imprimir-resumen-cierre', true),
-      receiptHeader: this.getTextOption('receipt-header', 'Restaurante La Pagoda'),
-      receiptFooter: this.getTextOption('receipt-footer', 'Gracias por su visita. ¡Vuelva pronto!'),
-      showTableNumber: this.getBooleanOption('mostrar-num-mesa', true),
-      showTicketCommission: this.getBooleanOption('mostrar-comision-ticket', true),
-      suggestedTipPercent: this.getNumericOption('propina-sugerida', 10),
+      receiptHeader: this.getTextOption('receipt-header', 'Restaurante Asiático'),
+      receiptFooter: this.getTextOption('receipt-footer', '¡Gracias por su visita!'),
     });
+  }
+
+  private restoreDraftOptions(): void {
+    try {
+      const raw = localStorage.getItem(CONFIG_DRAFT_KEY);
+      if (!raw) {
+        return;
+      }
+
+      const draft = JSON.parse(raw) as Record<string, string | number | boolean>;
+      for (const option of this.options) {
+        if (option.id === 'theme-mode') {
+          continue;
+        }
+        if (!Object.hasOwn(draft, option.id)) {
+          continue;
+        }
+        option.value = draft[option.id];
+      }
+    } catch {
+      this.clearDraftOptions();
+    }
+  }
+
+  private persistDraftOptions(): void {
+    try {
+      const draft: Record<string, string | number | boolean> = {};
+      for (const option of this.options) {
+        if (option.id === 'theme-mode' || option.value === undefined) {
+          continue;
+        }
+        draft[option.id] = option.value;
+      }
+      localStorage.setItem(CONFIG_DRAFT_KEY, JSON.stringify(draft));
+    } catch {
+      // Ignore storage issues so the form remains usable.
+    }
+  }
+
+  private clearDraftOptions(): void {
+    try {
+      localStorage.removeItem(CONFIG_DRAFT_KEY);
+    } catch {
+      // Ignore storage issues so the form remains usable.
+    }
+  }
+
+  private resolvePrinterOption(): 'default' | 'thermal' | 'none' {
+    return this.normalizePrinterOption(this.getSelectOption('printer-tickets', 'default'));
+  }
+
+  private normalizePrinterOption(value: string): 'default' | 'thermal' | 'none' {
+    return value === 'thermal' || value === 'none' ? value : 'default';
   }
 
   private normalizeThemePreference(value: ConfigOption['value']): ThemePreference {
