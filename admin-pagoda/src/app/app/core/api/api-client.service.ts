@@ -41,6 +41,21 @@ export class ApiClientService {
     }
   }
 
+  async postWithHeaders<TResponse, TBody>(
+    path: string,
+    payload: TBody,
+    headers: Record<string, string>,
+  ): Promise<TResponse> {
+    try {
+      const response = await firstValueFrom(
+        this.http.post<ApiResponse<TResponse>>(`${API_BASE_URL}${path}`, payload, { headers }),
+      );
+      return this.unwrapResponse(response);
+    } catch (error) {
+      this.handleHttpError(error);
+    }
+  }
+
   async put<TResponse, TBody>(path: string, payload: TBody): Promise<TResponse> {
     try {
       const response = await firstValueFrom(
@@ -52,10 +67,39 @@ export class ApiClientService {
     }
   }
 
+  async putWithHeaders<TResponse, TBody>(
+    path: string,
+    payload: TBody,
+    headers: Record<string, string>,
+  ): Promise<TResponse> {
+    try {
+      const response = await firstValueFrom(
+        this.http.put<ApiResponse<TResponse>>(`${API_BASE_URL}${path}`, payload, { headers }),
+      );
+      return this.unwrapResponse(response);
+    } catch (error) {
+      this.handleHttpError(error);
+    }
+  }
+
   async delete(path: string): Promise<void> {
     try {
       const response = await firstValueFrom(
         this.http.delete<ApiResponse<null>>(`${API_BASE_URL}${path}`),
+      );
+
+      if (!response.success) {
+        throw new Error(response.message || 'No se pudo eliminar el registro.');
+      }
+    } catch (error) {
+      this.handleHttpError(error);
+    }
+  }
+
+  async deleteWithHeaders(path: string, headers: Record<string, string>): Promise<void> {
+    try {
+      const response = await firstValueFrom(
+        this.http.delete<ApiResponse<null>>(`${API_BASE_URL}${path}`, { headers }),
       );
 
       if (!response.success) {

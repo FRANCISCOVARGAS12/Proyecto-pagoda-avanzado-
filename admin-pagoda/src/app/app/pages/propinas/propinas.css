@@ -92,7 +92,7 @@
   justify-content: center;
   flex-wrap: wrap;
   gap: 1rem;
-  padding-block: 2.4rem 3.6rem;
+  padding-block: 2.4rem 1.5rem;
 }
 
 .tip-card {
@@ -187,3 +187,153 @@
 
 /* ── Error msg ── */
 .info-message.error { color: #ef4444; font-size: .85rem; margin: 6px 0; }
+
+.tips-detail-card {
+  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+  border-radius: 1rem;
+  background:
+    radial-gradient(circle at 10% 0%, color-mix(in srgb, #22c55e 14%, transparent), transparent 28%),
+    var(--card);
+  margin: 0 auto 2rem;
+  max-width: 980px;
+  overflow: hidden;
+}
+
+.detail-head {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1rem 0.75rem;
+}
+
+.detail-head h2 {
+  font-size: 1.05rem;
+  margin: 0.15rem 0 0;
+}
+
+.detail-head small {
+  color: var(--muted-foreground);
+  display: block;
+  font-size: 0.78rem;
+  margin-top: 0.22rem;
+}
+
+.detail-head span:not(.spinner-sm) {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  padding: 0.25rem 0.65rem;
+}
+
+.eyebrow {
+  color: #22c55e;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.detail-tabs {
+  display: flex;
+  gap: 0.55rem;
+  padding: 0 1rem 0.85rem;
+}
+
+.detail-tabs button {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--card) 88%, transparent);
+  color: var(--muted-foreground);
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 800;
+  padding: 0.5rem 0.85rem;
+}
+
+.detail-tabs button.active {
+  border-color: color-mix(in srgb, #22c55e 45%, var(--border));
+  background: color-mix(in srgb, #22c55e 14%, transparent);
+  color: #16a34a;
+}
+
+.tips-table-shell {
+  overflow-x: auto;
+}
+
+.tips-table-shell table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.tips-table-shell th,
+.tips-table-shell td {
+  border-top: 1px solid var(--border);
+  font-size: 0.83rem;
+  padding: 0.78rem 1rem;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.tips-table-shell th {
+  color: var(--muted-foreground);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tips-table-shell tbody tr:hover {
+  background: color-mix(in srgb, #22c55e 8%, transparent);
+}
+
+.tips-table-shell .right {
+  text-align: right;
+}
+
+.tips-table-shell .strong,
+.tips-table-shell .folio {
+  font-weight: 700;
+}
+
+.method-badge {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.18rem 0.58rem;
+}
+
+.method-badge.cash {
+  background: color-mix(in srgb, #22c55e 14%, transparent);
+  border-color: color-mix(in srgb, #22c55e 28%, var(--border));
+  color: #16a34a;
+}
+
+.method-badge.card {
+  background: color-mix(in srgb, #d6b94c 16%, transparent);
+  border-color: color-mix(in srgb, #d6b94c 35%, var(--border));
+  color: #a16207;
+}
+
+.tip-amount-cell {
+  display: grid;
+  gap: 0.16rem;
+}
+
+.tip-amount-cell small {
+  color: var(--muted-foreground);
+  font-size: 0.74rem;
+  font-weight: 500;
+}
+
+.empty-detail {
+  border-top: 1px solid var(--border);
+  color: var(--muted-foreground);
+  font-size: 0.85rem;
+  margin: 0;
+  padding: 1.2rem;
+  text-align: center;
+}

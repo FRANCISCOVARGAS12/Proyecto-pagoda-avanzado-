@@ -1,6 +1,7 @@
 import { ChangeDetectorRef, Component, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ApiClientService } from '../../core/api/api-client.service';
+import { AuthService } from '../../core/auth/auth.service';
 import { AdminSettingsService } from '../../core/ui/admin-settings.service';
 import { ToastService } from '../../core/ui/toast.service';
 
@@ -31,6 +32,9 @@ interface UserForm {
   pin: string;
 }
 
+type ProtectedUserAction = 'create' | 'edit' | 'reactivate';
+type UserFilter = 'activos' | 'inactivos';
+
 @Component({
   selector: 'app-usuarios',
   imports: [FormsModule],
@@ -40,9 +44,20 @@ interface UserForm {
 export class Usuarios implements OnInit {
   protected roles: RolApi[] = [];
   protected users: UserRow[] = [];
+  protected userFilter: UserFilter = 'activos';
   protected showDialog = false;
   protected editingUserId: number | null = null;
   protected isSaving = signal(false);
+  protected authDialogVisible = false;
+  protected authPassword = '';
+  protected authAction: ProtectedUserAction | null = null;
+  protected authUserId: number | null = null;
+  protected isAuthorizing = signal(false);
+  protected deleteDialogVisible = false;
+  protected deleteTarget: UserRow | null = null;
+  protected deleteSuperPassword = '';
+  protected isDeleting = signal(false);
+  protected editingUserWasActive = true;
   protected form: UserForm = {
     nombre: '',
     rolId: null,
@@ -51,6 +66,7 @@ export class Usuarios implements OnInit {
 
   constructor(
     private readonly apiClient: ApiClientService,
+    private readonly authService: AuthService,
     private readonly adminSettingsService: AdminSettingsService,
     private readonly toastService: ToastService,
     private readonly cdr: ChangeDetectorRef,
@@ -60,9 +76,113 @@ export class Usuarios implements OnInit {
     await this.loadInitialData();
   }
 
+  protected get filteredUsers(): UserRow[] {
+    const shouldBeActive = this.userFilter === 'activos';
+    return this.users.filter((user) => user.activo === shouldBeActive);
+  }
+
+  protected setUserFilter(filter: UserFilter): void {
+    this.userFilter = filter;
+  }
+
+  protected activeCount(): number {
+    return this.users.filter((user) => user.activo).length;
+  }
+
+  protected inactiveCount(): number {
+    return this.users.filter((user) => !user.activo).length;
+  }
+
   protected openDialog(): void {
+    this.requestUserAuthorization('create');
+  }
+
+  protected openEditDialog(userId: number): void {
+    this.requestUserAuthorization('edit', userId);
+  }
+
+  protected reactivateUser(userId: number): void {
+    this.requestUserAuthorization('reactivate', userId);
+  }
+
+  protected closeAuthDialog(): void {
+    if (this.isAuthorizing()) {
+      return;
+    }
+
+    this.authDialogVisible = false;
+    this.authPassword = '';
+    this.authAction = null;
+    this.authUserId = null;
+  }
+
+  protected async confirmUserAuthorization(): Promise<void> {
+    if (this.isAuthorizing() || !this.authAction) {
+      return;
+    }
+
+    const password = this.authPassword.trim();
+    if (!password) {
+      this.toastService.error('Introduce la contraseña de superusuario.');
+      return;
+    }
+
+    this.isAuthorizing.set(true);
+    try {
+      const verification = await this.authService.verifySuperuser(password);
+      if (!verification.ok) {
+        this.toastService.error(verification.message);
+        return;
+      }
+
+      const action = this.authAction;
+      const userId = this.authUserId;
+      this.authDialogVisible = false;
+      this.authPassword = '';
+      this.authAction = null;
+      this.authUserId = null;
+
+      if (action === 'create') {
+        this.openDialogAuthorized();
+        return;
+      }
+      if ((action === 'edit' || action === 'reactivate') && userId !== null) {
+        this.openEditDialogAuthorized(userId);
+      }
+    } finally {
+      this.isAuthorizing.set(false);
+      this.cdr.detectChanges();
+    }
+  }
+
+  protected authDialogTitle(): string {
+    if (this.authAction === 'reactivate') {
+      return 'Reactivar usuario';
+    }
+    return this.authAction === 'edit' ? 'Editar usuario' : 'Agregar usuario';
+  }
+
+  protected authDialogBody(): string {
+    if (this.authAction === 'reactivate') {
+      return 'Para reactivar este usuario se necesita la contraseña de superusuario.';
+    }
+    if (this.authAction === 'edit') {
+      return 'Para editar este usuario se necesita la contraseña de superusuario.';
+    }
+    return 'Para agregar un nuevo usuario se necesita la contraseña de superusuario.';
+  }
+
+  private requestUserAuthorization(action: ProtectedUserAction, userId: number | null = null): void {
+    this.authAction = action;
+    this.authUserId = userId;
+    this.authPassword = '';
+    this.authDialogVisible = true;
+  }
+
+  private openDialogAuthorized(): void {
     this.showDialog = true;
     this.editingUserId = null;
+    this.editingUserWasActive = true;
     this.form = {
       nombre: '',
       rolId: this.resolveDefaultRoleId(),
@@ -70,13 +190,14 @@ export class Usuarios implements OnInit {
     };
   }
 
-  protected openEditDialog(userId: number): void {
+  private openEditDialogAuthorized(userId: number): void {
     const user = this.users.find((item) => item.id === userId);
     if (!user) {
       return;
     }
     this.showDialog = true;
     this.editingUserId = user.id;
+    this.editingUserWasActive = user.activo;
     this.form = {
       nombre: user.nombre,
       rolId: user.rolId ?? this.resolveDefaultRoleId(),
@@ -87,6 +208,7 @@ export class Usuarios implements OnInit {
   protected closeDialog(): void {
     this.showDialog = false;
     this.editingUserId = null;
+    this.editingUserWasActive = true;
     this.isSaving.set(false);
   }
 
@@ -102,26 +224,41 @@ export class Usuarios implements OnInit {
     return this.editingUserId !== null;
   }
 
+  protected isReactivating(): boolean {
+    return this.isEditing() && !this.editingUserWasActive;
+  }
+
   private async addUser(): Promise<void> {
     if (this.isSaving()) {
       return;
     }
     const pin = this.form.pin.trim();
+    const nombre = this.form.nombre.trim();
 
-    if (!this.form.nombre.trim() || this.form.rolId === null || !/^\d{6}$/.test(pin)) {
+    if (!nombre || this.form.rolId === null || !/^\d{6}$/.test(pin)) {
       this.toastService.error('Nombre, rol y PIN de 6 digitos son obligatorios.');
+      return;
+    }
+    const duplicate = this.findUserByName(nombre);
+    if (duplicate?.activo) {
+      this.toastService.error('Ya existe un usuario activo con ese nombre.');
+      return;
+    }
+    if (duplicate && !duplicate.activo) {
+      this.toastService.error('Ya existe un usuario inactivo con ese nombre. Ve a Inactivos para reactivarlo o usa otro nombre.');
       return;
     }
 
     this.isSaving.set(true);
     try {
-      await this.apiClient.post<UsuarioApi, { nombre: string; rolId: number; pin: string }>(
+      await this.apiClient.postWithHeaders<UsuarioApi, { nombre: string; rolId: number; pin: string }>(
         '/api/operacion/usuarios',
         {
-          nombre: this.form.nombre.trim(),
+          nombre,
           rolId: this.form.rolId,
           pin,
         },
+        this.authService.superuserHeaders(),
       );
 
       this.toastService.success('Usuario creado correctamente.');
@@ -151,10 +288,23 @@ export class Usuarios implements OnInit {
       this.toastService.error('El PIN debe tener 6 digitos.');
       return;
     }
+    if (this.isReactivating() && !pin) {
+      this.toastService.error('Para reactivar un usuario, asigna un PIN nuevo de 6 digitos.');
+      return;
+    }
+    const duplicate = this.findUserByName(nombre, this.editingUserId);
+    if (duplicate?.activo) {
+      this.toastService.error('Ya existe un usuario activo con ese nombre.');
+      return;
+    }
+    if (duplicate && !duplicate.activo) {
+      this.toastService.error('Ya existe un usuario inactivo con ese nombre. Ve a Inactivos para reactivarlo o usa otro nombre.');
+      return;
+    }
 
     this.isSaving.set(true);
     try {
-      await this.apiClient.put<
+      await this.apiClient.putWithHeaders<
         UsuarioApi,
         { nombre: string; rolId: number; pin: string | null; activo: boolean }
       >(`/api/operacion/usuarios/${this.editingUserId}`, {
@@ -162,10 +312,13 @@ export class Usuarios implements OnInit {
         rolId: this.form.rolId,
         pin: pin || null,
         activo: true,
-      });
+      }, this.authService.superuserHeaders());
 
-      this.toastService.success('Usuario actualizado correctamente.');
+      this.toastService.success(this.isReactivating() ? 'Usuario reactivado correctamente.' : 'Usuario actualizado correctamente.');
       await this.loadUsers();
+      if (this.isReactivating()) {
+        this.userFilter = 'activos';
+      }
       this.closeDialog();
     } catch (error) {
       const message =
@@ -182,10 +335,58 @@ export class Usuarios implements OnInit {
     if (!user || !user.activo) {
       return;
     }
+    if (!this.canDeactivate(user)) {
+      this.toastService.error(this.deactivateDisabledReason(user));
+      return;
+    }
 
+    this.deleteTarget = user;
+    this.deleteSuperPassword = '';
+    this.deleteDialogVisible = true;
+  }
+
+  protected closeDeleteDialog(): void {
+    if (this.isDeleting()) {
+      return;
+    }
+
+    this.deleteDialogVisible = false;
+    this.deleteTarget = null;
+    this.deleteSuperPassword = '';
+  }
+
+  protected async confirmDeleteUser(): Promise<void> {
+    const user = this.deleteTarget;
+    const password = this.deleteSuperPassword.trim();
+
+    if (!user || this.isDeleting()) {
+      return;
+    }
+    if (!password) {
+      this.toastService.error('Introduce la contraseña de superusuario.');
+      return;
+    }
+
+    this.isDeleting.set(true);
     try {
-      await this.apiClient.delete(`/api/operacion/usuarios/${userId}`);
-      this.users = this.users.filter((item) => item.id !== userId);
+      const verification = await this.authService.verifySuperuser(password);
+      if (!verification.ok) {
+        this.toastService.error(verification.message);
+        return;
+      }
+
+      await this.apiClient.deleteWithHeaders(
+        `/api/operacion/usuarios/${user.id}`,
+        this.authService.superuserHeaders(),
+      );
+      this.users = this.users.map((item) =>
+        item.id === user.id
+          ? { ...item, activo: false, estado: 'inactivo' }
+          : item,
+      );
+      this.deleteDialogVisible = false;
+      this.deleteTarget = null;
+      this.deleteSuperPassword = '';
       this.cdr.detectChanges();
       this.toastService.success('Usuario desactivado correctamente.');
     } catch (error) {
@@ -194,6 +395,8 @@ export class Usuarios implements OnInit {
           ? error.message
           : 'No se pudo desactivar el usuario.';
       this.toastService.error(message);
+    } finally {
+      this.isDeleting.set(false);
     }
   }
 
@@ -207,7 +410,6 @@ export class Usuarios implements OnInit {
       this.roles = roles;
       this.users = usuarios
         .map((usuario) => this.mapUser(usuario))
-        .filter((usuario) => usuario.activo)
         .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' }));
       this.cdr.detectChanges();
     } catch (error) {
@@ -225,7 +427,6 @@ export class Usuarios implements OnInit {
       const usuarios = await this.apiClient.get<UsuarioApi[]>('/api/operacion/usuarios');
       this.users = usuarios
         .map((usuario) => this.mapUser(usuario))
-        .filter((usuario) => usuario.activo)
         .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' }));
       this.cdr.detectChanges();
     } catch (error) {
@@ -273,5 +474,52 @@ export class Usuarios implements OnInit {
     }
 
     return this.roles[0]?.id ?? null;
+  }
+
+  protected canDeactivate(user: UserRow): boolean {
+    if (!user.activo) {
+      return false;
+    }
+    if (this.isCurrentUser(user)) {
+      return false;
+    }
+    return !(this.isAdminUser(user) && this.activeAdminCount() <= 1);
+  }
+
+  protected deactivateDisabledReason(user: UserRow): string {
+    if (!user.activo) {
+      return 'El usuario ya esta inactivo.';
+    }
+    if (this.isCurrentUser(user)) {
+      return 'No puedes desactivar el usuario con el que tienes la sesion iniciada.';
+    }
+    if (this.isAdminUser(user) && this.activeAdminCount() <= 1) {
+      return 'Debe existir al menos un administrador activo.';
+    }
+    return 'Desactivar usuario';
+  }
+
+  private activeAdminCount(): number {
+    return this.users.filter((user) => user.activo && this.isAdminUser(user)).length;
+  }
+
+  private isAdminUser(user: UserRow): boolean {
+    return user.rol.trim().toUpperCase() === 'ADMIN';
+  }
+
+  private isCurrentUser(user: UserRow): boolean {
+    return user.id === this.authService.userId();
+  }
+
+  private findUserByName(nombre: string, excludeId: number | null = null): UserRow | undefined {
+    const normalized = this.normalizeUserName(nombre);
+    return this.users.find((user) =>
+      (excludeId === null || user.id !== excludeId) &&
+      this.normalizeUserName(user.nombre) === normalized
+    );
+  }
+
+  private normalizeUserName(nombre: string): string {
+    return (nombre ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
   }
 }

@@ -49,7 +49,7 @@
             <td>${{ product.precio.toFixed(2) }}</td>
             <td class="center">
               <button type="button" class="action-btn" title="Editar" (click)="openEditDialog(product)">✎</button>
-              <button type="button" class="action-btn danger" title="Eliminar" (click)="removeProduct(product.id)">🗑</button>
+              <button type="button" class="action-btn danger" title="Eliminar" (click)="removeProduct(product)">🗑</button>
             </td>
           </tr>
         }
@@ -69,29 +69,74 @@
     <div class="dialog-card" (click)="$event.stopPropagation()">
       <div class="dialog-head">
         <h2>{{ editingProductId ? 'Editar Producto' : 'Añadir Nuevo Producto' }}</h2>
-        <button type="button" class="close-btn" (click)="closeDialog()">✕</button>
+        <button type="button" class="close-btn" [disabled]="isSaving" (click)="closeDialog()">✕</button>
       </div>
 
       <form class="dialog-form" (ngSubmit)="saveProduct()">
         <label for="nombre">Nombre del Producto</label>
-        <input id="nombre" type="text" [(ngModel)]="form.nombre" name="nombre" required placeholder="Ej: Pad Thai" />
+        <input id="nombre" type="text" [(ngModel)]="form.nombre" name="nombre" required placeholder="Ej: Pad Thai" [disabled]="isSaving" />
 
         <label for="precio">Precio (MXN)</label>
-        <input id="precio" type="number" step="0.01" [(ngModel)]="form.precio" name="precio" required placeholder="0.00" />
+        <input id="precio" type="number" step="0.01" [(ngModel)]="form.precio" name="precio" required placeholder="0.00" [disabled]="isSaving" />
 
         <label for="categoria">Categoría</label>
-        <select id="categoria" [(ngModel)]="form.categoriaId" name="categoria" required>
+        <select id="categoria" [(ngModel)]="form.categoriaId" name="categoria" required [disabled]="isSaving">
           @for (category of categories; track category.id) {
             <option [ngValue]="category.id">{{ category.nombre }}</option>
           }
         </select>
 
         <label for="descripcion">Descripción</label>
-        <input id="descripcion" type="text" [(ngModel)]="form.descripcion" name="descripcion" placeholder="Opcional" />
+        <input id="descripcion" type="text" [(ngModel)]="form.descripcion" name="descripcion" placeholder="Opcional" [disabled]="isSaving" />
 
         <div class="dialog-actions">
-          <button type="button" class="secondary-btn" (click)="closeDialog()">Cancelar</button>
-          <button type="submit" class="primary-btn">{{ editingProductId ? 'Guardar Cambios' : 'Añadir Producto' }}</button>
+          <button type="button" class="secondary-btn" [disabled]="isSaving" (click)="closeDialog()">Cancelar</button>
+          <button type="submit" class="primary-btn" [disabled]="isSaving">
+            {{ isSaving ? 'Guardando...' : (editingProductId ? 'Guardar Cambios' : 'Añadir Producto') }}
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+}
+
+@if (showAuthDialog) {
+  <div class="dialog-backdrop" (click)="closeAuthDialog()">
+    <div class="dialog-card protected-dialog" role="dialog" aria-modal="true" (click)="$event.stopPropagation()">
+      <div class="dialog-head">
+        <div>
+          <p class="dialog-eyebrow">Superusuario</p>
+          <h2>{{ authDialogTitle() }}</h2>
+        </div>
+        <button type="button" class="close-btn" [disabled]="isAuthorizing" (click)="closeAuthDialog()">✕</button>
+      </div>
+
+      <p class="dialog-copy">{{ authDialogBody() }}</p>
+
+      <form class="dialog-form" (ngSubmit)="confirmProtectedAction()">
+        <label for="menu-super-password">Contraseña de superusuario</label>
+        <input
+          id="menu-super-password"
+          type="password"
+          [(ngModel)]="authPassword"
+          name="authPassword"
+          autocomplete="current-password"
+          placeholder="Introduce la contraseña"
+          [disabled]="isAuthorizing"
+        />
+
+        <div class="dialog-actions">
+          <button type="button" class="secondary-btn" [disabled]="isAuthorizing" (click)="closeAuthDialog()">
+            Cancelar
+          </button>
+          <button
+            type="submit"
+            class="primary-btn"
+            [class.danger-primary]="authAction === 'delete'"
+            [disabled]="isAuthorizing"
+          >
+            {{ authConfirmLabel() }}
+          </button>
         </div>
       </form>
     </div>

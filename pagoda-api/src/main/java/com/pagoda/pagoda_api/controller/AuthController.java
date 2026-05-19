@@ -9,6 +9,8 @@ import com.pagoda.pagoda_api.exception.PagodaException;
 import com.pagoda.pagoda_api.repository.catalogos.RolRepository;
 import com.pagoda.pagoda_api.repository.operacion.UsuarioRepository;
 import com.pagoda.pagoda_api.service.AdminAuthService;
+import com.pagoda.pagoda_api.service.SuperuserAuthService;
+import com.pagoda.pagoda_api.service.UsuarioService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
@@ -16,7 +18,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.Data;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -24,10 +25,13 @@ import org.springframework.web.bind.annotation.*;
 @RequiredArgsConstructor
 public class AuthController {
 
+    private static final String SUPERUSER_HEADER = "X-Superuser-Token";
+
     private final UsuarioRepository usuarioRepository;
     private final RolRepository rolRepository;
-    private final PasswordEncoder passwordEncoder;
     private final AdminAuthService adminAuthService;
+    private final SuperuserAuthService superuserAuthService;
+    private final UsuarioService usuarioService;
 
     @Data
     public static class RegisterFirstAdminRequest {
@@ -47,7 +51,10 @@ public class AuthController {
     }
 
     @PostMapping("/register-first-admin")
-    public ResponseEntity<ApiResponse<LoginResponse>> registerFirstAdmin(@Valid @RequestBody RegisterFirstAdminRequest request) {
+    public ResponseEntity<ApiResponse<LoginResponse>> registerFirstAdmin(
+            @RequestHeader(value = SUPERUSER_HEADER, required = false) String superuserToken,
+            @Valid @RequestBody RegisterFirstAdminRequest request) {
+        superuserAuthService.validarToken(superuserToken);
         boolean hasAdmin = usuarioRepository.findAll().stream()
                 .anyMatch(u -> u.getRol() != null && "ADMIN".equalsIgnoreCase(u.getRol().getNombre()) && u.getActivo());
         if (hasAdmin) {
@@ -57,19 +64,8 @@ public class AuthController {
         Rol adminRol = rolRepository.findByNombre("ADMIN")
                 .orElseThrow(() -> new PagodaException(ErrorCode.ROL_NO_ENCONTRADO));
 
-        if (usuarioRepository.existsByNombre(request.getNombre())) {
-            throw new PagodaException(ErrorCode.NOMBRE_USUARIO_DUPLICADO);
-        }
-
-        Usuario admin = Usuario.builder()
-                .nombre(request.getNombre().trim())
-                .rol(adminRol)
-                .pinHash(passwordEncoder.encode(request.getPin()))
-                .activo(true)
-                .build();
-
-        usuarioRepository.save(admin);
-        LoginResponse loginResponse = adminAuthService.loginConPin(request.getNombre(), request.getPin());
+        Usuario admin = usuarioService.guardarPrimerAdmin(request.getNombre(), adminRol, request.getPin());
+        LoginResponse loginResponse = adminAuthService.loginConPin(admin.getNombre(), request.getPin());
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok("Admin registrado correctamente", loginResponse));
     }
 }

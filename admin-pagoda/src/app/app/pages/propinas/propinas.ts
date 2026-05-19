@@ -15,6 +15,18 @@ interface JornadaEstadoApi {
   estado: string;
 }
 
+interface TipDetail {
+  folio: number;
+  fecha: string;
+  mesa: number | null;
+  propinaEfectivo: number;
+  propinaTarjetaBruto: number;
+  propinaTarjetaNeto: number;
+  totalNeto: number;
+}
+
+type TipDetailScope = 'dia' | 'periodo';
+
 const PROPINAS_BASE_DATE = '2026-04-26';
 const PROPINAS_PERIOD_DAYS = 15;
 
@@ -34,12 +46,15 @@ export class PropinasComponent implements OnInit, OnDestroy {
   // ── Datos mostrados ───────────────────────────────────────────
   acumulado = 0;         // Total del periodo de 15 días seleccionado
   diario = 0;            // Propinas de hoy (siempre el día actual)
+  detalles: TipDetail[] = [];
+  detalleScope: TipDetailScope = 'dia';
   dailyDate = '';        // Fecha del diario (hoy)
   jornadaActiva = false; // Si hay jornada abierta ahora mismo
 
   // ── Estado ────────────────────────────────────────────────────
   cargando = false;
   cargandoDiario = false;
+  cargandoDetalle = false;
   infoMessage = '';
 
   // Modo manual = el usuario cambió el periodo manualmente
@@ -63,11 +78,8 @@ export class PropinasComponent implements OnInit, OnDestroy {
     this.endDate = actual.fin;
     this.manualMode = false;
 
-    // Cargar todo en paralelo
-    await Promise.all([
-      this.cargarAcumulado(),
-      this.cargarDiario(),
-    ]);
+    await Promise.all([this.cargarAcumulado(), this.cargarDiario()]);
+    await this.cargarDetalle();
 
     void this.wsService.connect();
     this.suscribirWS();
@@ -89,10 +101,14 @@ export class PropinasComponent implements OnInit, OnDestroy {
   }
 
   async consultarPropinas(): Promise<void> {
+    if (this.isDateRangeInvalid()) {
+      this.infoMessage = 'La fecha fin no puede ser menor que la fecha inicio.';
+      return;
+    }
     // Verificar si el periodo elegido es el actual
     const actual = this.periodoActual();
     this.manualMode = this.startDate !== actual.inicio || this.endDate !== actual.fin;
-    await this.cargarAcumulado();
+    await Promise.all([this.cargarAcumulado(), this.cargarDetalle()]);
   }
 
   async limpiarFiltros(): Promise<void> {
@@ -101,7 +117,13 @@ export class PropinasComponent implements OnInit, OnDestroy {
     this.endDate = actual.fin;
     this.manualMode = false;
     this.infoMessage = '';
-    await this.cargarAcumulado();
+    await Promise.all([this.cargarAcumulado(), this.cargarDetalle()]);
+  }
+
+  async setDetalleScope(scope: TipDetailScope): Promise<void> {
+    if (this.detalleScope === scope) return;
+    this.detalleScope = scope;
+    await this.cargarDetalle();
   }
 
   // ── Carga de datos ───────────────────────────────────────────
@@ -124,6 +146,41 @@ export class PropinasComponent implements OnInit, OnDestroy {
       this.acumulado = 0;
     } finally {
       this.cargando = false;
+      this.cdr.detectChanges();
+    }
+  }
+
+  private async cargarDetalle(): Promise<void> {
+    if (this.isDateRangeInvalid()) {
+      this.detalles = [];
+      return;
+    }
+
+    const range = this.detalleRange();
+    if (!range.inicio || !range.fin) {
+      this.detalles = [];
+      return;
+    }
+
+    this.cargandoDetalle = true;
+    try {
+      const data = await this.apiClient.get<TipDetail[]>(
+        `/api/reportes/propinas/detalle?inicio=${range.inicio}&fin=${range.fin}`
+      );
+      this.detalles = (data || []).map((item) => ({
+        folio: Number(item.folio ?? 0),
+        fecha: String(item.fecha ?? '').slice(0, 10),
+        mesa: item.mesa === null || item.mesa === undefined ? null : Number(item.mesa),
+        propinaEfectivo: Number(item.propinaEfectivo ?? 0),
+        propinaTarjetaBruto: Number(item.propinaTarjetaBruto ?? 0),
+        propinaTarjetaNeto: Number(item.propinaTarjetaNeto ?? 0),
+        totalNeto: Number(item.totalNeto ?? 0),
+      }));
+    } catch (err) {
+      console.error('Error cargando detalle de propinas:', err);
+      this.detalles = [];
+    } finally {
+      this.cargandoDetalle = false;
       this.cdr.detectChanges();
     }
   }
@@ -190,7 +247,9 @@ export class PropinasComponent implements OnInit, OnDestroy {
           this.startDate = actual.inicio;
           this.endDate = actual.fin;
         }
-        void this.cargarAcumulado();
+        void Promise.all([this.cargarAcumulado(), this.cargarDetalle()]);
+      } else {
+        void this.cargarDetalle();
       }
     });
 
@@ -233,7 +292,18 @@ export class PropinasComponent implements OnInit, OnDestroy {
   }
 
   isConsultarDisabled(): boolean {
-    return this.cargando || !this.startDate || !this.endDate;
+    return this.cargando || !this.startDate || !this.endDate || this.isDateRangeInvalid();
+  }
+
+  isDateRangeInvalid(): boolean {
+    return Boolean(this.startDate && this.endDate && this.endDate < this.startDate);
+  }
+
+  detalleScopeLabel(): string {
+    if (this.detalleScope === 'dia') {
+      return `Tickets del día · ${this.formatFecha(this.detalleRange().inicio)}`;
+    }
+    return `Tickets acumulados · ${this.rangeLabel()}`;
   }
 
   // ── Utilidades ───────────────────────────────────────────────
@@ -246,6 +316,35 @@ export class PropinasComponent implements OnInit, OnDestroy {
 
   fmt(n: number): string {
     return `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  }
+
+  mesaLabel(mesa: number | null): string {
+    return mesa === null || Number.isNaN(mesa) ? 'Mesa -' : `Mesa ${mesa}`;
+  }
+
+  hasCashTip(detalle: TipDetail): boolean {
+    return Number(detalle.propinaEfectivo ?? 0) > 0;
+  }
+
+  hasCardTip(detalle: TipDetail): boolean {
+    return Number(detalle.propinaTarjetaBruto ?? 0) > 0;
+  }
+
+  tipMethodLabel(detalle: TipDetail): string {
+    const cash = this.hasCashTip(detalle);
+    const card = this.hasCardTip(detalle);
+    if (cash && card) return 'Mixta';
+    if (card) return 'Tarjeta';
+    if (cash) return 'Efectivo';
+    return 'Sin propina';
+  }
+
+  private detalleRange(): { inicio: string; fin: string } {
+    if (this.detalleScope === 'dia') {
+      const fecha = this.dailyDate || this.toISO(new Date());
+      return { inicio: fecha, fin: fecha };
+    }
+    return { inicio: this.startDate, fin: this.endDate };
   }
 
   private periodoActual(): { inicio: string; fin: string } {

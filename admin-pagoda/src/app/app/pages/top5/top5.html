@@ -18,7 +18,7 @@
         type="date"
         [(ngModel)]="startDate"
         [min]="minDate"
-        [max]="maxDate"
+        [max]="endDate || maxDate"
         (change)="onDateRangeChange()"
       />
     </div>
@@ -29,7 +29,7 @@
         id="endDate"
         type="date"
         [(ngModel)]="endDate"
-        [min]="minDate"
+        [min]="startDate || minDate"
         [max]="maxDate"
         (change)="onDateRangeChange()"
       />
@@ -53,9 +53,64 @@
   @if (error) {
     <p class="table-footnote">{{ error }}</p>
   }
+  @if (isDateRangeInvalid()) {
+    <p class="table-footnote error">La fecha fin no puede ser menor que la fecha inicio.</p>
+  }
 
   @if (!cargando && !top5.length && !error) {
     <p class="table-footnote">No hay datos para el rango seleccionado.</p>
+  }
+
+  @if (top5.length || salesFlow.length) {
+    <div class="insights-grid">
+      <article class="chart-card flow-card">
+        <div class="chart-head">
+          <div>
+            <p class="eyebrow">Flujo de ventas</p>
+            <h2>{{ fmt(totalFlowSales) }}</h2>
+          </div>
+          <span>{{ totalFlowTickets }} ticket(s)</span>
+        </div>
+
+        <div class="flow-chart" aria-label="Grafica de flujo de ventas">
+          @for (point of salesFlow; track point.fecha) {
+            <div class="flow-column">
+              <div class="flow-value">{{ fmt(point.totalVentas) }}</div>
+              <div class="flow-bar-shell">
+                <div class="flow-bar" [style.height.%]="flowBarHeight(point)"></div>
+              </div>
+              <small>{{ formatShortDate(point.fecha) }}</small>
+            </div>
+          }
+        </div>
+      </article>
+
+      <article class="chart-card ranking-card">
+        <div class="chart-head">
+          <div>
+            <p class="eyebrow">Top 5 visual</p>
+            <h2>Platillos por venta</h2>
+          </div>
+        </div>
+
+        <div class="ranking-bars">
+          @for (product of top5; track product.nombre; let i = $index) {
+            <div class="ranking-row">
+              <span class="ranking-position">#{{ i + 1 }}</span>
+              <div class="ranking-content">
+                <div class="ranking-meta">
+                  <strong>{{ product.nombre }}</strong>
+                  <span>{{ fmt(product.totalGenerado) }}</span>
+                </div>
+                <div class="ranking-track">
+                  <div class="ranking-fill" [style.width.%]="top5BarWidth(product)"></div>
+                </div>
+              </div>
+            </div>
+          }
+        </div>
+      </article>
+    </div>
   }
 
   @if (top5.length) {

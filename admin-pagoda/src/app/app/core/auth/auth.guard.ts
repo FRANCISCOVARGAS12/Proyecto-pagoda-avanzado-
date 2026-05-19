@@ -19,6 +19,12 @@ export const adminGuard: CanActivateFn = () => {
   const toastService = inject(ToastService);
   const router = inject(Router);
 
+  if (authService.isAuthenticated() && !authService.hasSuperuserSession()) {
+    toastService.error('Verifica la contraseña de superusuario para entrar al panel.');
+    authService.logout();
+    return router.createUrlTree(['/login']);
+  }
+
   if (authService.isAdmin()) {
     return true;
   }
@@ -30,4 +36,3 @@ export const adminGuard: CanActivateFn = () => {
 
   return router.createUrlTree(['/login']);
 };
-

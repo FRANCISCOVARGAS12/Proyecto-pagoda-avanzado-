@@ -129,6 +129,13 @@ tbody tr:nth-child(even) {
   box-shadow: 0 20px 45px rgb(0 0 0 / 25%);
 }
 
+.dialog-card.protected-dialog {
+  border-color: color-mix(in srgb, var(--primary) 28%, var(--border));
+  background:
+    radial-gradient(circle at top left, color-mix(in srgb, var(--primary) 12%, transparent), transparent 45%),
+    var(--card);
+}
+
 .dialog-head {
   display: flex;
   align-items: center;
@@ -139,6 +146,21 @@ tbody tr:nth-child(even) {
 .dialog-head h2 {
   margin: 0;
   font-size: 1.25rem;
+}
+
+.dialog-eyebrow {
+  margin: 0 0 0.25rem;
+  color: var(--primary);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.dialog-copy {
+  color: var(--muted-foreground);
+  line-height: 1.55;
+  margin: 0 0 1rem;
 }
 
 .close-btn {
@@ -172,6 +194,13 @@ tbody tr:nth-child(even) {
   padding: 0.7rem 0.9rem;
 }
 
+.dialog-form input:focus,
+.dialog-form select:focus {
+  border-color: color-mix(in srgb, var(--primary) 62%, var(--border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 16%, transparent);
+  outline: none;
+}
+
 .form-error {
   margin: 0;
   color: var(--destructive);
@@ -196,6 +225,18 @@ tbody tr:nth-child(even) {
 
 .secondary-btn:hover {
   opacity: 0.9;
+}
+
+.primary-btn:disabled,
+.secondary-btn:disabled,
+.close-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.danger-primary {
+  background: var(--destructive);
+  color: white;
 }
 
 .dialog-actions .primary-btn {

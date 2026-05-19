@@ -9,6 +9,8 @@ import com.pagoda.pagoda_api.entity.operacion.Usuario;
 import com.pagoda.pagoda_api.exception.ErrorCode;
 import com.pagoda.pagoda_api.exception.PagodaException;
 import com.pagoda.pagoda_api.repository.catalogos.RolRepository;
+import com.pagoda.pagoda_api.service.AdminAuthService;
+import com.pagoda.pagoda_api.service.SuperuserAuthService;
 import com.pagoda.pagoda_api.service.UsuarioService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -24,9 +26,13 @@ import java.util.List;
 @RequiredArgsConstructor
 public class UsuarioController {
 
+    private static final String SUPERUSER_HEADER = "X-Superuser-Token";
+
     private final UsuarioService usuarioService;
     private final RolRepository rolRepository;
     private final PasswordEncoder passwordEncoder;
+    private final SuperuserAuthService superuserAuthService;
+    private final AdminAuthService adminAuthService;
 
     @GetMapping
     public ResponseEntity<ApiResponse<List<UsuarioResponse>>> listar() {
@@ -42,12 +48,13 @@ public class UsuarioController {
     }
 
     @PostMapping
-    public ResponseEntity<ApiResponse<UsuarioResponse>> crear(@Valid @RequestBody UsuarioCreateRequest request) {
+    public ResponseEntity<ApiResponse<UsuarioResponse>> crear(
+            @Valid @RequestBody UsuarioCreateRequest request,
+            @RequestHeader(value = SUPERUSER_HEADER, required = false) String superuserToken) {
+        superuserAuthService.validarToken(superuserToken);
         Rol rol = rolRepository.findById(request.getRolId())
                 .orElseThrow(() -> new PagodaException(ErrorCode.ROL_NO_ENCONTRADO));
-        if ("MESERO".equalsIgnoreCase(rol.getNombre())) {
-            usuarioService.validarPinUnicoEntreMeserosActivos(request.getPin(), rol.getId(), null);
-        }
+        usuarioService.validarPinUnicoEntreUsuariosActivos(request.getPin(), null);
 
         Usuario usuario = Usuario.builder()
                 .nombre(request.getNombre())
@@ -62,11 +69,17 @@ public class UsuarioController {
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<ApiResponse<UsuarioResponse>> actualizar(@PathVariable Integer id, @Valid @RequestBody UsuarioUpdateRequest request) {
+    public ResponseEntity<ApiResponse<UsuarioResponse>> actualizar(
+            @PathVariable Integer id,
+            @Valid @RequestBody UsuarioUpdateRequest request,
+            @RequestHeader("Authorization") String authorization,
+            @RequestHeader(value = SUPERUSER_HEADER, required = false) String superuserToken) {
+        superuserAuthService.validarToken(superuserToken);
+        Usuario currentAdmin = adminAuthService.obtenerAdminPorToken(extractBearerToken(authorization));
         Rol rol = rolRepository.findById(request.getRolId())
                 .orElseThrow(() -> new PagodaException(ErrorCode.ROL_NO_ENCONTRADO));
-        if (request.getPin() != null && "MESERO".equalsIgnoreCase(rol.getNombre())) {
-            usuarioService.validarPinUnicoEntreMeserosActivos(request.getPin(), rol.getId(), id);
+        if (request.getPin() != null) {
+            usuarioService.validarPinUnicoEntreUsuariosActivos(request.getPin(), id);
         }
 
         Usuario usuario = Usuario.builder()
@@ -76,13 +89,18 @@ public class UsuarioController {
                 .activo(request.getActivo())
                 .build();
 
-        Usuario actualizado = usuarioService.actualizar(id, usuario);
+        Usuario actualizado = usuarioService.actualizar(id, usuario, currentAdmin.getId());
         return ResponseEntity.ok(ApiResponse.ok("Usuario actualizado correctamente", toResponse(actualizado)));
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<ApiResponse<Void>> desactivar(@PathVariable Integer id) {
-        usuarioService.desactivar(id);
+    public ResponseEntity<ApiResponse<Void>> desactivar(
+            @PathVariable Integer id,
+            @RequestHeader("Authorization") String authorization,
+            @RequestHeader(value = SUPERUSER_HEADER, required = false) String superuserToken) {
+        superuserAuthService.validarToken(superuserToken);
+        Usuario currentAdmin = adminAuthService.obtenerAdminPorToken(extractBearerToken(authorization));
+        usuarioService.desactivar(id, currentAdmin.getId());
         return ResponseEntity.ok(ApiResponse.ok("Usuario desactivado correctamente", null));
     }
 
@@ -94,5 +112,13 @@ public class UsuarioController {
                 .activo(usuario.getActivo())
                 .build();
     }
-}
 
+    private String extractBearerToken(String authorization) {
+        if (authorization == null) {
+            return "";
+        }
+        return authorization.startsWith("Bearer ")
+                ? authorization.substring(7).trim()
+                : authorization.trim();
+    }
+}

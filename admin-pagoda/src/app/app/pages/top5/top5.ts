@@ -16,6 +16,12 @@ interface JornadaApi {
   fecha: string;
 }
 
+interface SalesFlowPoint {
+  fecha: string;
+  totalVentas: number;
+  totalTickets: number;
+}
+
 @Component({
   selector: 'app-top5',
   standalone: true,
@@ -33,6 +39,10 @@ export class Top5Component implements OnInit {
   appliedEndDate = '';
 
   top5: PlatilloTop[] = [];
+  salesFlow: SalesFlowPoint[] = [];
+  totalFlowSales = 0;
+  totalFlowTickets = 0;
+  maxFlowSales = 0;
   cargando = false;
   error = '';
 
@@ -70,6 +80,9 @@ export class Top5Component implements OnInit {
       return;
     }
     this.rangePreset = 'custom';
+    if (!this.isDateRangeInvalid()) {
+      this.error = '';
+    }
   }
 
   async consultarTop5(): Promise<void> {
@@ -78,11 +91,14 @@ export class Top5Component implements OnInit {
       this.error = 'Selecciona un rango de fechas válido.';
       return;
     }
-    const { inicio, fin } = this.normalizarRango(this.startDate, this.endDate);
-    this.startDate = inicio;
-    this.endDate = fin;
-    this.appliedStartDate = inicio;
-    this.appliedEndDate = fin;
+    if (this.isDateRangeInvalid()) {
+      this.top5 = [];
+      this.salesFlow = [];
+      this.error = '';
+      return;
+    }
+    this.appliedStartDate = this.startDate;
+    this.appliedEndDate = this.endDate;
     await this.cargarTop5();
   }
 
@@ -99,7 +115,11 @@ export class Top5Component implements OnInit {
   }
 
   isConsultarDisabled(): boolean {
-    return this.cargando || !this.startDate || !this.endDate;
+    return this.cargando || !this.startDate || !this.endDate || this.isDateRangeInvalid();
+  }
+
+  isDateRangeInvalid(): boolean {
+    return Boolean(this.startDate && this.endDate && this.endDate < this.startDate);
   }
 
   private async inicializarRangoGlobal(): Promise<void> {
@@ -145,12 +165,25 @@ export class Top5Component implements OnInit {
     this.cargando = true;
     this.error = '';
     try {
-      const data = await this.apiClient.get<PlatilloTop[]>(
-        `/api/reportes/platillos/top5?inicio=${this.appliedStartDate}&fin=${this.appliedEndDate}`,
-      );
+      const [data, flow] = await Promise.all([
+        this.apiClient.get<PlatilloTop[]>(
+          `/api/reportes/platillos/top5?inicio=${this.appliedStartDate}&fin=${this.appliedEndDate}`,
+        ),
+        this.apiClient.get<SalesFlowPoint[]>(
+          `/api/reportes/platillos/flujo-ventas?inicio=${this.appliedStartDate}&fin=${this.appliedEndDate}`,
+        ),
+      ]);
       this.top5 = [...(data || [])].sort((a, b) => b.totalGenerado - a.totalGenerado);
+      this.salesFlow = this.fillFlowGaps(flow || [], this.appliedStartDate, this.appliedEndDate);
+      this.totalFlowSales = this.salesFlow.reduce((sum, point) => sum + Number(point.totalVentas ?? 0), 0);
+      this.totalFlowTickets = this.salesFlow.reduce((sum, point) => sum + Number(point.totalTickets ?? 0), 0);
+      this.maxFlowSales = Math.max(0, ...this.salesFlow.map((point) => Number(point.totalVentas ?? 0)));
     } catch (err) {
       this.top5 = [];
+      this.salesFlow = [];
+      this.totalFlowSales = 0;
+      this.totalFlowTickets = 0;
+      this.maxFlowSales = 0;
       this.error = 'No se pudo cargar el Top 5.';
       console.error(err);
     } finally {
@@ -164,13 +197,6 @@ export class Top5Component implements OnInit {
     const m = String(date.getMonth() + 1).padStart(2, '0');
     const d = String(date.getDate()).padStart(2, '0');
     return `${y}-${m}-${d}`;
-  }
-
-  private normalizarRango(inicio: string, fin: string): { inicio: string; fin: string } {
-    if (inicio <= fin) {
-      return { inicio, fin };
-    }
-    return { inicio: fin, fin: inicio };
   }
 
   private parseIsoDate(isoDate: string): Date {
@@ -194,5 +220,54 @@ export class Top5Component implements OnInit {
 
   fmt(n: number): string {
     return `$${n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+  }
+
+  formatShortDate(iso: string): string {
+    if (!iso || iso.length < 10) return iso;
+    const [, month, day] = iso.split('-');
+    return `${day}/${month}`;
+  }
+
+  flowBarHeight(point: SalesFlowPoint): number {
+    if (this.maxFlowSales <= 0) {
+      return 6;
+    }
+    return Math.max(8, Math.round((Number(point.totalVentas ?? 0) / this.maxFlowSales) * 100));
+  }
+
+  top5BarWidth(product: PlatilloTop): number {
+    const max = Math.max(0, ...this.top5.map((item) => Number(item.totalGenerado ?? 0)));
+    if (max <= 0) {
+      return 0;
+    }
+    return Math.max(8, Math.round((Number(product.totalGenerado ?? 0) / max) * 100));
+  }
+
+  private fillFlowGaps(points: SalesFlowPoint[], start: string, end: string): SalesFlowPoint[] {
+    const normalized = points.map((point) => ({
+      fecha: String(point.fecha ?? '').slice(0, 10),
+      totalVentas: Number(point.totalVentas ?? 0),
+      totalTickets: Number(point.totalTickets ?? 0),
+    })).filter((point) => /^\d{4}-\d{2}-\d{2}$/.test(point.fecha));
+    const days = this.daysBetween(start, end);
+    if (days < 0 || days > 45) {
+      return normalized.sort((a, b) => a.fecha.localeCompare(b.fecha));
+    }
+
+    const byDate = new Map(normalized.map((point) => [point.fecha, point]));
+    const filled: SalesFlowPoint[] = [];
+    const cursor = this.parseIsoDate(start);
+    for (let index = 0; index <= days; index++) {
+      const fecha = this.toISO(cursor);
+      filled.push(byDate.get(fecha) ?? { fecha, totalVentas: 0, totalTickets: 0 });
+      cursor.setDate(cursor.getDate() + 1);
+    }
+    return filled;
+  }
+
+  private daysBetween(start: string, end: string): number {
+    const startDate = this.parseIsoDate(start);
+    const endDate = this.parseIsoDate(end);
+    return Math.round((endDate.getTime() - startDate.getTime()) / 86_400_000);
   }
 }

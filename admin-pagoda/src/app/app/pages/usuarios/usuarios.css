@@ -12,6 +12,41 @@
   margin-bottom: 1.25rem;
 }
 
+.filter-tabs {
+  display: inline-flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  padding: 0.3rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--muted) 28%, transparent);
+}
+
+.filter-tabs button {
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-weight: 700;
+  padding: 0.5rem 0.9rem;
+}
+
+.filter-tabs button.active {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.filter-tabs span {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--card) 55%, transparent);
+  font-size: 0.72rem;
+  padding: 0.08rem 0.45rem;
+}
+
 .primary-btn {
   border: 0;
   border-radius: 0.65rem;
@@ -50,6 +85,29 @@ td {
 .actions-col {
   text-align: center;
   width: 220px;
+}
+
+.status-badge {
+  border: 1px solid color-mix(in srgb, #22c55e 30%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in srgb, #22c55e 12%, transparent);
+  color: #16a34a;
+  display: inline-flex;
+  font-size: 0.74rem;
+  font-weight: 700;
+  padding: 0.18rem 0.6rem;
+}
+
+.status-badge.inactive {
+  border-color: color-mix(in srgb, var(--destructive) 30%, var(--border));
+  background: color-mix(in srgb, var(--destructive) 10%, transparent);
+  color: var(--destructive);
+}
+
+.empty-state {
+  color: var(--muted-foreground);
+  padding: 1.2rem;
+  text-align: center;
 }
 
 tr:last-child td {
@@ -94,6 +152,16 @@ tr:last-child td {
   background: color-mix(in srgb, var(--destructive) 18%, transparent);
 }
 
+.action-btn.success {
+  border-color: color-mix(in srgb, #22c55e 35%, transparent);
+  background: color-mix(in srgb, #22c55e 13%, transparent);
+  color: #16a34a;
+}
+
+.action-btn.success:hover:enabled {
+  background: color-mix(in srgb, #22c55e 19%, transparent);
+}
+
 .action-btn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
@@ -119,6 +187,19 @@ tr:last-child td {
   box-shadow: 0 20px 45px rgb(0 0 0 / 30%);
 }
 
+.dialog-card.danger-dialog {
+  border-color: color-mix(in srgb, var(--destructive) 28%, var(--border));
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--card) 94%, var(--destructive) 6%), var(--card));
+}
+
+.dialog-card.protected-dialog {
+  border-color: color-mix(in srgb, var(--primary) 28%, var(--border));
+  background:
+    radial-gradient(circle at top left, color-mix(in srgb, var(--primary) 12%, transparent), transparent 45%),
+    var(--card);
+}
+
 .dialog-head {
   display: flex;
   align-items: center;
@@ -129,6 +210,29 @@ tr:last-child td {
 .dialog-head h2 {
   margin: 0;
   font-size: 1.15rem;
+}
+
+.dialog-eyebrow {
+  margin: 0 0 0.25rem;
+  color: var(--destructive);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.protected-dialog .dialog-eyebrow {
+  color: var(--primary);
+}
+
+.dialog-copy {
+  margin: 0 0 1.1rem;
+  color: var(--muted-foreground);
+  line-height: 1.55;
+}
+
+.dialog-copy strong {
+  color: var(--foreground);
 }
 
 .close-btn {
@@ -163,6 +267,13 @@ tr:last-child td {
   padding: 0.7rem 0.85rem;
 }
 
+.dialog-form input:focus,
+.dialog-form select:focus {
+  border-color: color-mix(in srgb, var(--primary) 65%, var(--border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 16%, transparent);
+  outline: none;
+}
+
 .form-error {
   margin: 0;
   color: var(--destructive);
@@ -188,6 +299,22 @@ tr:last-child td {
 
 .secondary-btn:hover {
   opacity: 0.92;
+}
+
+.primary-btn:disabled,
+.secondary-btn:disabled,
+.close-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.danger-primary {
+  background: var(--destructive);
+  color: white;
+}
+
+.danger-primary:hover:enabled {
+  opacity: 0.9;
 }
 
 .dialog-actions .primary-btn {

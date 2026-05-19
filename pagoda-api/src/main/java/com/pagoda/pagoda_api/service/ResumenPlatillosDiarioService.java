@@ -49,4 +49,14 @@ public class ResumenPlatillosDiarioService {
             return map;
         }).collect(Collectors.toList());
     }
+
+    public List<Map<String, Object>> obtenerFlujoVentas(LocalDate inicio, LocalDate fin) {
+        return itemVentaRepository.findFlujoVentasByRango(inicio, fin).stream().map(row -> {
+            Map<String, Object> map = new LinkedHashMap<>();
+            map.put("fecha", row[0] == null ? null : row[0].toString());
+            map.put("totalTickets", row[1] instanceof Number ? ((Number) row[1]).intValue() : 0);
+            map.put("totalVentas", row[2] instanceof BigDecimal ? row[2] : BigDecimal.ZERO);
+            return map;
+        }).collect(Collectors.toList());
+    }
 }

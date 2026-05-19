@@ -54,6 +54,71 @@ public class PagoService {
         return saved;
     }
 
+    public List<Pago> actualizarPropinaVenta(Integer ventaId, BigDecimal propinaMonto) {
+        if (ventaId == null) {
+            throw new PagodaException(ErrorCode.VENTA_NO_ENCONTRADA);
+        }
+
+        List<Pago> pagos = pagoRepository.findByVentaId(ventaId);
+        if (pagos.isEmpty()) {
+            throw new PagodaException(ErrorCode.PAGO_NO_ENCONTRADO);
+        }
+
+        BigDecimal nuevaPropina = normalizeMoney(propinaMonto);
+        if (nuevaPropina.compareTo(BigDecimal.ZERO) < 0) {
+            nuevaPropina = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        }
+
+        List<Pago> carriers = pagos.stream()
+                .filter(pago -> normalizeMoney(pago.getPropinaMonto()).compareTo(BigDecimal.ZERO) > 0)
+                .toList();
+        BigDecimal propinaActual = carriers.stream()
+                .map(pago -> normalizeMoney(pago.getPropinaMonto()))
+                .reduce(BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP), BigDecimal::add);
+
+        if (carriers.isEmpty()) {
+            carriers = List.of(pagos.getFirst());
+        }
+
+        BigDecimal restante = nuevaPropina;
+        for (Pago pago : pagos) {
+            boolean isCarrier = carriers.stream().anyMatch(carrier -> carrier.getId().equals(pago.getId()));
+            BigDecimal tipAmount = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+
+            if (isCarrier) {
+                boolean isLastCarrier = carriers.getLast().getId().equals(pago.getId());
+                if (isLastCarrier) {
+                    tipAmount = restante.max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
+                } else if (propinaActual.compareTo(BigDecimal.ZERO) > 0) {
+                    tipAmount = nuevaPropina
+                            .multiply(normalizeMoney(pago.getPropinaMonto()))
+                            .divide(propinaActual, 2, RoundingMode.HALF_UP);
+                    if (tipAmount.compareTo(restante) > 0) {
+                        tipAmount = restante;
+                    }
+                    restante = restante.subtract(tipAmount).setScale(2, RoundingMode.HALF_UP);
+                } else {
+                    tipAmount = nuevaPropina;
+                    restante = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+                }
+            }
+
+            pago.setPropinaMonto(tipAmount);
+            if (tipAmount.compareTo(BigDecimal.ZERO) > 0 && pago.getPropinaMetodoPago() == null) {
+                pago.setPropinaMetodoPago(pago.getMetodoPago());
+            }
+            pago.setPropinaNeto(null);
+            pago.setPropinaNeto(normalizeTipNet(
+                    resolveTipNet(pago, tipAmount, normalizePercentage(pago.getComisionPorcentaje())),
+                    tipAmount
+            ));
+        }
+
+        List<Pago> saved = pagoRepository.saveAll(pagos);
+        publishPropinasUpdate();
+        return saved;
+    }
+
     public void normalizeSalePaymentsIfNeeded(Integer ventaId, BigDecimal totalCuentaVenta) {
         if (ventaId == null || totalCuentaVenta == null || totalCuentaVenta.compareTo(BigDecimal.ZERO) <= 0) {
             return;

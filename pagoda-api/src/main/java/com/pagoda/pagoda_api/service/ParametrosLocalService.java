@@ -20,7 +20,9 @@ public class ParametrosLocalService {
     public ParametrosLocal obtener() {
         List<ParametrosLocal> todos = parametrosLocalRepository.findAll();
         if (todos.isEmpty()) {
-            throw new PagodaException(ErrorCode.PARAMETROS_NO_CONFIGURADOS);
+            ParametrosLocal defaults = ParametrosLocal.builder().build();
+            defaults.setFechaActualizacion(LocalDateTime.now());
+            return parametrosLocalRepository.save(defaults);
         }
         ParametrosLocal actual = todos.getFirst();
         return normalizeExisting(actual) ? parametrosLocalRepository.save(actual) : actual;

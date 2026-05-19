@@ -1,5 +1,6 @@
 package com.pagoda.pagoda_api.entity.operacion;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.*;
 import java.math.BigDecimal;
@@ -73,6 +74,10 @@ public class ParametrosLocal {
     @Builder.Default
     @Column(name = "pie_ticket", nullable = false)
     private String pieTicket = "¡Gracias por su visita!";
+
+    @JsonIgnore
+    @Column(name = "superusuario_password_hash")
+    private String superusuarioPasswordHash;
 
     @ManyToOne
     @JoinColumn(name = "actualizado_por")

@@ -1,0 +1,1931 @@
+\documentclass[11pt,letterpaper,openany]{report}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish,es-nodecimaldot]{babel}
+\usepackage{geometry}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{longtable}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{enumitem}
+\usepackage{fancyhdr}
+\usepackage{listings}
+\usepackage{tikz}
+\usepackage{titlesec}
+\usepackage{microtype}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric,fit}
+
+\geometry{margin=2.05cm}
+\raggedbottom
+\sloppy
+\setlength{\parskip}{0.35em}
+\setlength{\parindent}{0pt}
+\renewcommand{\arraystretch}{1.15}
+\setlist[itemize]{leftmargin=*, itemsep=2pt, topsep=4pt}
+\setlist[enumerate]{leftmargin=*, itemsep=2pt, topsep=4pt}
+
+\definecolor{PagodaIvory}{HTML}{F8F4EA}
+\definecolor{PagodaInk}{HTML}{1F2933}
+\definecolor{PagodaNavy}{HTML}{16324F}
+\definecolor{PagodaGold}{HTML}{B9903D}
+\definecolor{PagodaCopper}{HTML}{A55B3B}
+\definecolor{PagodaSage}{HTML}{5E7C6B}
+\definecolor{PagodaWine}{HTML}{7A2E3A}
+\definecolor{PagodaPanel}{HTML}{EFE7D6}
+\definecolor{PagodaTeal}{HTML}{2D8C84}
+\definecolor{PagodaRed}{HTML}{A94442}
+\definecolor{CodeBg}{HTML}{F7F2E8}
+\definecolor{CodeText}{HTML}{1F2933}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=PagodaNavy,
+  urlcolor=PagodaWine,
+  citecolor=PagodaSage
+}
+
+\newcommand{\projectname}{Pagoda POS}
+\newcommand{\systemname}{PAGODA POS}
+\newcommand{\universidad}{Universidad Veracruz}
+\newcommand{\materia}{Principios de Construcción de Software / Base de Datos para el Desarrollo de Software}
+\newcommand{\docente}{PhD(c) Jorge Ernesto González Díaz}
+\newcommand{\repo}{Proyecto-pagoda-avanzado-}
+\newcommand{\code}[1]{\texttt{\detokenize{#1}}}
+\newcommand{\estado}[1]{\textbf{\textcolor{PagodaTeal}{#1}}}
+\renewcommand{\contentsname}{Temario}
+\renewcommand{\listfigurename}{Índice de Figuras}
+\renewcommand{\listtablename}{Índice de Tablas}
+
+\titleclass{\chapter}{straight}
+\titleformat{\chapter}
+  {\normalfont\LARGE\bfseries\color{PagodaNavy}}
+  {\thechapter.}{0.8em}{}
+\titlespacing*{\chapter}{0pt}{1.1em}{0.7em}
+\titleformat{\section}
+  {\normalfont\Large\bfseries\color{PagodaCopper}}
+  {\thesection.}{0.7em}{}
+\titleformat{\subsection}
+  {\normalfont\large\bfseries\color{PagodaSage}}
+  {\thesubsection.}{0.6em}{}
+
+\lstdefinestyle{pagoda}{
+  backgroundcolor=\color{CodeBg},
+  basicstyle=\small\ttfamily\color{CodeText},
+  frame=single,
+  framerule=0.3pt,
+  rulecolor=\color{PagodaGold},
+  breaklines=true,
+  columns=fullflexible,
+  keepspaces=true,
+  showstringspaces=false
+}
+\lstset{style=pagoda}
+
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{\projectname}
+\rhead{Documentación técnica}
+\cfoot{\thepage}
+
+\begin{document}
+
+\begin{titlepage}
+  \centering
+  \vspace*{1.1cm}
+  {\Large\bfseries \textcolor{PagodaNavy}{\universidad}\par}
+  \vspace{0.45cm}
+  {\large Documentación de proyecto de software\par}
+  \vspace{1.2cm}
+  \begin{tikzpicture}
+    \node[
+      draw=PagodaGold,
+      line width=1.1pt,
+      rounded corners=14pt,
+      fill=PagodaIvory,
+      text width=0.82\textwidth,
+      inner sep=20pt
+    ] {
+      \centering
+      {\Huge\bfseries \textcolor{PagodaNavy}{\systemname}\par}
+      \vspace{0.35cm}
+      {\Large Sistema POS para operación y administración de restaurante\par}
+      \vspace{0.6cm}
+      {\normalsize Documento técnico-académico de análisis, diseño, construcción, despliegue y mantenimiento del software.\par}
+    };
+  \end{tikzpicture}
+  \vspace{1cm}
+  \begin{tabular}{>{\bfseries}p{0.25\textwidth}p{0.58\textwidth}}
+    Materia: & \materia \\
+    Docente: & \docente \\
+    Repositorio: & \texttt{\repo} \\
+    Fecha: & \today \\
+  \end{tabular}
+  \vspace{1.1cm}
+
+  {\large\bfseries Integrantes que desarrollaron el software\par}
+  \vspace{0.35cm}
+  \begin{tabular}{p{0.62\textwidth}}
+    Juárez Zapata Brandon \\
+    Vargas Ramos Francisco \\
+    Vázquez López Jessica Ayelen \\
+    Demeneghi Victoria \\
+    José Pablo Girón Flores Oswaldo \\
+  \end{tabular}
+  \vfill
+  {\small Documento preparado para evaluación universitaria. El contenido mantiene precisión técnica, pero explica el sistema de forma gradual para facilitar su lectura y exposición.\par}
+\end{titlepage}
+
+\tableofcontents
+\listoffigures
+\listoftables
+\clearpage
+
+\chapter{Resumen Ejecutivo}
+
+\section{Enfoque del Documento}
+
+Este documento está escrito para una evaluación universitaria. Por esa razón combina dos niveles de explicación: primero describe el problema de negocio con lenguaje claro y después muestra cómo se resolvió técnicamente con arquitectura, base de datos, servicios, interfaces, endpoints y casos de uso. La intención es que el lector pueda entender qué hace el sistema, por qué se construyó de esa manera y qué partes tendría que modificar si quisiera extenderlo.
+
+\section{Lectura Recomendada}
+
+\begin{itemize}
+  \item Si se desea una visión general, leer Resumen Ejecutivo, Arquitectura General y Casos de Uso.
+  \item Si se desea revisar la parte de programación, leer Backend API, Panel Administrativo Angular y App Mesero Flutter.
+  \item Si se desea evaluar base de datos, leer Modelo de Dominio, Esquemas de Base de Datos y Reportes.
+  \item Si se desea operar o desplegar el sistema, leer Despliegue y Operación.
+\end{itemize}
+
+\section{Propósito del Proyecto}
+
+\projectname{} es un sistema POS diseñado para un restaurante que necesita controlar mesas, pedidos, pagos, propinas, jornadas operativas, reportes administrativos y configuración local del negocio. El proyecto está dividido en tres aplicaciones:
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{API Backend}: expone reglas de negocio, persistencia en PostgreSQL, autenticación, seguridad, WebSockets y reportes.
+  \item \textbf{Panel Administrativo}: permite a administradores consultar ventas, top 5 de platillos, propinas, usuarios, menú y configuración.
+  \item \textbf{App Mesero}: permite iniciar sesión con PIN, abrir mesas, capturar pedidos, cerrar cuentas, registrar propinas, consultar/reimprimir tickets y recibir eventos de jornada.
+\end{itemize}
+
+\section{Objetivo Operativo}
+
+El sistema busca reducir errores de captura y facilitar la administración diaria del restaurante. Una jornada representa el día operativo. Durante esa jornada se abren ventas por mesa, se agregan productos, se registran pagos, se calculan propinas y al final se genera un cierre con información consolidada.
+
+\section{Alcance Actual}
+
+\begin{itemize}[leftmargin=*]
+  \item Administración de usuarios administradores y meseros.
+  \item Seguridad con PIN hash para usuarios y contraseña hash de superusuario.
+  \item Catálogos de roles, estados de mesa, estados de item, métodos de pago, tipos de cobro y categorías.
+  \item Gestión de productos del menú.
+  \item Gestión de mesas y estados: \estado{LIBRE}, \estado{OCUPADO}, \estado{PIDIENDO\_CUENTA}, \estado{LIMPIANDO}.
+  \item Jornadas con apertura, cierre y normalización automática por cambio de día.
+  \item Ventas con items, pagos, comisión bancaria, propina bruta y propina neta.
+  \item Reportes de ventas, top 5 de platillos y propinas por rango de fechas.
+  \item Sincronización en tiempo real por WebSocket para jornada, pedidos, top 5 y propinas.
+  \item Generación de PDF desde la app del mesero para tickets y desde el admin para reportes/cierre.
+\end{itemize}
+
+\section{Criterio de Calidad}
+
+La prioridad del sistema es consistencia operativa. Las cifras administrativas deben salir de la base de datos y no de cálculos visuales aislados. La interfaz puede mostrar estados optimistas, pero el dato oficial debe ser confirmado por la API. Para modificaciones futuras, cualquier cambio que afecte ventas, pagos, propinas o jornadas debe verificarse con pruebas manuales de flujo completo.
+
+\chapter{Análisis del Problema}
+
+\section{Contexto}
+
+Un restaurante que trabaja con varias mesas, meseros, tickets y métodos de pago necesita controlar su operación diaria de forma confiable. Si los pedidos se registran manualmente o en herramientas separadas, pueden aparecer errores como cuentas duplicadas, propinas mal sumadas, cierres incompletos, pérdida de tickets o reportes que no coinciden con lo cobrado.
+
+\projectname{} resuelve este problema integrando en un solo flujo la atención del mesero y la supervisión administrativa. La app móvil se concentra en la operación de mesas y el panel web se concentra en supervisión, configuración y reportes.
+
+\section{Problema Principal}
+
+El problema central es construir un sistema que mantenga sincronizada la información entre el punto de venta móvil y el panel administrativo, evitando inconsistencias en dinero, propinas, cierres y estado de mesas.
+
+\section{Objetivos Específicos}
+
+\begin{itemize}
+  \item Permitir a los meseros registrar pedidos por mesa de manera sencilla.
+  \item Permitir al administrador abrir y cerrar jornadas con control de seguridad.
+  \item Automatizar reportes de ventas, platillos más vendidos y propinas.
+  \item Evitar que usuarios no autorizados modifiquen datos sensibles.
+  \item Mantener persistencia de configuración local del restaurante.
+  \item Preparar el sistema para impresión de tickets y despliegue real.
+\end{itemize}
+
+\section{Requerimientos Funcionales}
+
+\begin{longtable}{p{0.14\textwidth}p{0.76\textwidth}}
+\caption{Requerimientos funcionales}\\
+\toprule
+\textbf{ID} & \textbf{Descripción}\\
+\midrule
+\endfirsthead
+\toprule
+\textbf{ID} & \textbf{Descripción}\\
+\midrule
+\endhead
+RF-01 & El sistema debe permitir iniciar sesión a administradores con nombre/PIN.\\
+RF-02 & El sistema debe permitir iniciar sesión a meseros con PIN.\\
+RF-03 & El sistema debe permitir configurar una contraseña de superusuario sin guardarla en texto plano.\\
+RF-04 & El sistema debe solicitar superusuario para acciones administrativas sensibles.\\
+RF-05 & El administrador debe poder abrir una jornada operativa.\\
+RF-06 & El administrador debe poder cerrar una jornada con confirmación y PIN.\\
+RF-07 & El mesero debe poder consultar el mapa de mesas.\\
+RF-08 & El mesero debe poder abrir una venta para una mesa libre.\\
+RF-09 & El mesero debe poder agregar y quitar productos de una venta.\\
+RF-10 & El mesero debe poder cerrar una cuenta con efectivo, tarjeta o pagos mixtos.\\
+RF-11 & El sistema debe calcular comisión bancaria y montos netos.\\
+RF-12 & El sistema debe permitir ajustar propinas cuando la mesa está en limpieza.\\
+RF-13 & El sistema debe generar tickets en PDF.\\
+RF-14 & El sistema debe permitir recuperar tickets para reimpresión futura.\\
+RF-15 & El administrador debe consultar ventas, top 5 y propinas por periodo.\\
+RF-16 & El sistema debe validar rangos de fecha en reportes.\\
+RF-17 & El administrador debe gestionar productos y categorías.\\
+RF-18 & El administrador debe gestionar usuarios activos e inactivos.\\
+RF-19 & El administrador debe guardar configuración local persistente.\\
+RF-20 & El sistema debe notificar cambios importantes por WebSocket.\\
+\bottomrule
+\end{longtable}
+
+\section{Requerimientos No Funcionales}
+
+\begin{longtable}{p{0.14\textwidth}p{0.23\textwidth}p{0.53\textwidth}}
+\caption{Requerimientos no funcionales}\\
+\toprule
+\textbf{ID} & \textbf{Categoría} & \textbf{Descripción}\\
+\midrule
+\endfirsthead
+\toprule
+\textbf{ID} & \textbf{Categoría} & \textbf{Descripción}\\
+\midrule
+\endhead
+RNF-01 & Seguridad & PIN y superusuario deben almacenarse como hash.\\
+RNF-02 & Usabilidad & Los mensajes deben ser comprensibles para el usuario final.\\
+RNF-03 & Consistencia & Los reportes deben calcularse desde datos persistidos.\\
+RNF-04 & Disponibilidad & La app debe permitir reintentos cuando falle la red.\\
+RNF-05 & Mantenibilidad & La lógica de negocio debe concentrarse en servicios backend.\\
+RNF-06 & Escalabilidad & La arquitectura separa frontend, backend y base de datos.\\
+RNF-07 & Portabilidad & El backend se empaqueta con Docker y la app con Flutter.\\
+RNF-08 & Auditoría futura & Acciones sensibles deben poder registrarse en versiones posteriores.\\
+\bottomrule
+\end{longtable}
+
+\chapter{Stack Tecnológico}
+
+\begin{longtable}{p{0.22\textwidth}p{0.25\textwidth}p{0.43\textwidth}}
+\caption{Stack principal del proyecto}\\
+\toprule
+\textbf{Capa} & \textbf{Tecnología} & \textbf{Uso dentro del proyecto}\\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Capa} & \textbf{Tecnología} & \textbf{Uso dentro del proyecto}\\
+\midrule
+\endhead
+Backend & Java 21 & Lenguaje principal de la API.\\
+Backend & Spring Boot 4.0.3 & Framework para API REST, inyección de dependencias, seguridad, JPA y WebSocket.\\
+Backend & Spring Data JPA & Repositorios y persistencia de entidades.\\
+Backend & Spring Security & Filtros, protección de endpoints y manejo de tokens.\\
+Backend & Spring WebSocket/STOMP & Eventos en tiempo real para admin y app.\\
+Backend & Lombok & Reducción de código repetitivo en entidades, DTOs y servicios.\\
+Base de datos & PostgreSQL & Persistencia principal del sistema.\\
+Admin & Angular 21.2 & Panel administrativo SPA.\\
+Admin & RxJS & Manejo de flujos reactivos, servicios HTTP y estados asincrónicos.\\
+Admin & STOMP + SockJS & Suscripción a eventos WebSocket.\\
+Admin & jsPDF & Generación de PDFs administrativos.\\
+Mesero & Flutter & App móvil multiplataforma para meseros.\\
+Mesero & Provider & Estado global de pedidos y sesión.\\
+Mesero & http & Comunicación REST con backend.\\
+Mesero & pdf + printing & Generación y vista previa de tickets.\\
+Mesero & shared\_preferences & Persistencia local simple de sesión/configuración.\\
+Despliegue & Docker & Empaquetado del backend para Render u otro host.\\
+Despliegue & GitHub Pages & Publicación del panel Angular.\\
+\bottomrule
+\end{longtable}
+
+\section{Estructura General del Repositorio}
+
+\begin{lstlisting}
+Proyecto-pagoda-avanzado-/
+  pagoda-api/          API Java Spring Boot
+  admin-pagoda/        Panel administrativo Angular
+  mesero-pagoda/       Aplicacion Flutter para meseros
+  docs/                Documentacion tecnica del proyecto
+  fix_*.sql            Scripts de mantenimiento puntual de base de datos
+\end{lstlisting}
+
+\chapter{Arquitectura General}
+
+\section{Vista de Componentes}
+
+\begin{figure}[htbp]
+\centering
+\resizebox{0.92\textwidth}{!}{%
+\begin{tikzpicture}[
+  component/.style={draw, rounded corners=8pt, thick, align=center, minimum width=3.6cm, minimum height=1.1cm, font=\small},
+  api/.style={component, fill=PagodaGold!18, draw=PagodaGold},
+  app/.style={component, fill=PagodaSage!14, draw=PagodaSage},
+  db/.style={component, fill=PagodaWine!10, draw=PagodaWine},
+  arrow/.style={-{Latex[length=3mm]}, thick, color=PagodaInk}
+]
+\node[app] (admin) at (0,2.2) {Panel Administrativo\\Angular};
+\node[app] (mesero) at (0,-1.2) {Aplicación Mesero\\Flutter};
+\node[api] (api) at (5.9,0.5) {API Backend\\Spring Boot};
+\node[db] (db) at (11.2,0.5) {Base de Datos\\PostgreSQL};
+
+\draw[arrow] (admin.east) -- node[above, font=\small]{REST} (api.north west);
+\draw[arrow, dashed] (api.west) -- node[below, font=\small]{WebSocket STOMP} (admin.east);
+\draw[arrow] (mesero.east) -- node[below, font=\small]{REST} (api.south west);
+\draw[arrow] (api.east) -- node[above, font=\small]{JPA / SQL} (db.west);
+\end{tikzpicture}
+}
+\caption{Arquitectura de alto nivel}
+\end{figure}
+
+\section{Vista de Despliegue}
+
+\begin{figure}[htbp]
+\centering
+\resizebox{0.94\textwidth}{!}{%
+\begin{tikzpicture}[
+  node/.style={draw, rounded corners=8pt, thick, align=center, minimum width=3.5cm, minimum height=1.0cm, font=\small},
+  device/.style={node, fill=PagodaIvory, draw=PagodaGold},
+  service/.style={node, fill=PagodaSage!12, draw=PagodaSage},
+  data/.style={node, fill=PagodaWine!10, draw=PagodaWine},
+  arrow/.style={-{Latex[length=3mm]}, thick}
+]
+\node[device] (phone) at (0,2.0) {Teléfono / Tablet\\App Mesero APK};
+\node[device] (browser) at (0,-1.2) {Navegador Web\\Panel Admin};
+\node[service] (gh) at (5.2,-1.2) {GitHub Pages\\Frontend Angular};
+\node[service] (render) at (5.2,2.0) {Render / Docker\\API Spring Boot};
+\node[data] (db) at (10.4,0.4) {Aiven PostgreSQL\\Base de datos};
+
+\draw[arrow] (phone.east) -- node[above, font=\small]{HTTPS REST} (render.west);
+\draw[arrow] (browser.east) -- node[below, font=\small]{HTML/CSS/JS} (gh.west);
+\draw[arrow] (gh.north) -- node[right, font=\small]{REST + WebSocket} (render.south);
+\draw[arrow] (render.east) -- node[above, font=\small]{SSL / JDBC} (db.west);
+\end{tikzpicture}
+}
+\caption{Diagrama UML de despliegue lógico}
+\end{figure}
+
+\section{Principio de Separación}
+
+El backend concentra la verdad del negocio: jornadas, ventas, pagos, propinas, usuarios, catálogos y reportes. El panel admin y la app mesero son clientes que consumen la API. La UI puede calcular vistas parciales para mejorar experiencia, pero todo cierre, acumulado o reporte debe obtenerse o confirmarse desde el backend.
+
+\section{Flujo de Datos}
+
+\begin{enumerate}[leftmargin=*]
+  \item El mesero inicia sesión con PIN en la app.
+  \item La app consulta mesas, productos, categorías y jornada activa.
+  \item El mesero abre una venta asociada a mesa y usuario.
+  \item El mesero agrega items a la venta.
+  \item Al cerrar cuenta, la app registra pagos y propina.
+  \item La API normaliza pagos, comisión, propina bruta y neta.
+  \item La API cierra la venta y publica eventos WebSocket.
+  \item El admin actualiza ventas, top 5 y propinas sin depender de refrescos manuales.
+  \item Al cierre de jornada, la API cierra la jornada y notifica a clientes conectados.
+\end{enumerate}
+
+\section{Secuencia de Cierre de Cuenta}
+
+\begin{figure}[htbp]
+\centering
+\resizebox{0.96\textwidth}{!}{%
+\begin{tikzpicture}[
+  actor/.style={draw, rounded corners=5pt, thick, align=center, minimum width=2.8cm, minimum height=0.8cm, fill=PagodaIvory, font=\small},
+  msg/.style={-{Latex[length=2.5mm]}, thick},
+  lifeline/.style={dashed, color=PagodaSage}
+]
+\node[actor] (mesero) at (0,0) {Mesero};
+\node[actor] (app) at (3.7,0) {App Mesero};
+\node[actor] (api) at (7.4,0) {API};
+\node[actor] (db) at (11.1,0) {PostgreSQL};
+\node[actor] (admin) at (14.8,0) {Panel Admin};
+
+\foreach \x in {0,3.7,7.4,11.1,14.8} \draw[lifeline] (\x,-0.5) -- (\x,-6.0);
+
+\draw[msg] (mesero) -- node[above, font=\scriptsize]{captura pago y propina} (app);
+\draw[msg] (app) ++(0,-1.2) -- node[above, font=\scriptsize]{POST /pagos} ++(3.7,0);
+\draw[msg] (api) ++(0,-1.9) -- node[above, font=\scriptsize]{guardar pago normalizado} ++(3.7,0);
+\draw[msg] (app) ++(0,-2.8) -- node[above, font=\scriptsize]{PUT /ventas/\{id\}/cerrar} ++(3.7,0);
+\draw[msg] (api) ++(0,-3.5) -- node[above, font=\scriptsize]{cerrar venta} ++(3.7,0);
+\draw[msg] (api) ++(0,-4.4) -- node[above, font=\scriptsize]{/topic/pedido, /topic/propinas} ++(7.4,0);
+\draw[msg] (admin) ++(0,-5.2) -- node[above, font=\scriptsize]{consulta datos actualizados} ++(-7.4,0);
+\end{tikzpicture}
+}
+\caption{Diagrama UML de secuencia para cierre de cuenta}
+\end{figure}
+
+\section{Actividad de Cierre de Jornada}
+
+\begin{figure}[htbp]
+\centering
+\resizebox{0.86\textwidth}{!}{%
+\begin{tikzpicture}[
+  step/.style={draw, rounded corners=7pt, thick, align=center, minimum width=4.2cm, minimum height=0.8cm, fill=PagodaIvory, font=\small},
+  decision/.style={draw, diamond, aspect=2.2, thick, align=center, fill=PagodaGold!12, font=\small},
+  arrow/.style={-{Latex[length=2.5mm]}, thick}
+]
+\node[step] (start) at (0,0) {Admin presiona Cerrar jornada};
+\node[decision] (confirm) at (0,-1.6) {¿Confirma?};
+\node[step] (pin) at (0,-3.3) {Solicitar PIN del admin};
+\node[decision] (valid) at (0,-5.0) {¿PIN válido?};
+\node[step] (api) at (0,-6.7) {API cierra jornada};
+\node[step] (pdf) at (0,-8.4) {Admin genera PDF};
+\node[step] (logout) at (0,-10.1) {App mesero limpia estado y vuelve a login};
+\node[step] (cancel) at (6.2,-1.6) {Cancelar operación};
+\node[step] (error) at (6.2,-5.0) {Mostrar error controlado};
+
+\draw[arrow] (start) -- (confirm);
+\draw[arrow] (confirm) -- node[right, font=\scriptsize]{Sí} (pin);
+\draw[arrow] (confirm) -- node[above, font=\scriptsize]{No} (cancel);
+\draw[arrow] (pin) -- (valid);
+\draw[arrow] (valid) -- node[right, font=\scriptsize]{Sí} (api);
+\draw[arrow] (valid) -- node[above, font=\scriptsize]{No} (error);
+\draw[arrow] (api) -- (pdf);
+\draw[arrow] (pdf) -- (logout);
+\end{tikzpicture}
+}
+\caption{Diagrama UML de actividad para cierre de jornada}
+\end{figure}
+
+\section{Eventos WebSocket}
+
+\begin{longtable}{p{0.24\textwidth}p{0.28\textwidth}p{0.38\textwidth}}
+\caption{Canales WebSocket relevantes}\\
+\toprule
+\textbf{Topic} & \textbf{Emisor principal} & \textbf{Uso}\\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Topic} & \textbf{Emisor principal} & \textbf{Uso}\\
+\midrule
+\endhead
+\code{/topic/jornada} & \code{JornadaService} & Notifica apertura/cierre de jornada. El admin y la app deben reaccionar limpiando estado cuando se cierra.\\
+\code{/topic/pedido} & \code{VentaService} & Notifica creación/cierre de pedidos para actualizar ventas en el panel.\\
+\code{/topic/top5} & \code{VentaService} & Notifica cambios que pueden afectar el top 5 de platillos.\\
+\code{/topic/propinas} & \code{VentaService}, \code{PagoService} & Notifica cambios en propinas y acumulados.\\
+\bottomrule
+\end{longtable}
+
+\chapter{Modelo de Dominio}
+
+\section{Conceptos Principales}
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Jornada}: día operativo del restaurante. Puede estar abierta o cerrada.
+  \item \textbf{Usuario}: persona que usa el sistema. Tiene rol ADMIN o MESERO, PIN hash y estado activo/inactivo.
+  \item \textbf{Mesa}: unidad física de servicio del restaurante. Tiene número, capacidad y estado.
+  \item \textbf{Producto}: platillo o bebida vendible, asociado a una categoría.
+  \item \textbf{Venta}: pedido/cuenta asociada a una mesa, mesero y jornada.
+  \item \textbf{ItemVenta}: producto agregado a una venta, con cantidad, precio y comensal.
+  \item \textbf{Pago}: registro de pago de una venta, con método, monto, comisión, monto neto y propina.
+  \item \textbf{Resumen}: agregados para ventas, propinas y platillos.
+  \item \textbf{ParametrosLocal}: configuración persistente del negocio, incluyendo fondos por día, comisión bancaria y hash de superusuario.
+\end{itemize}
+
+\section{Diagrama Entidad-Relación Simplificado}
+
+\begin{figure}[htbp]
+\centering
+\resizebox{0.96\textwidth}{!}{%
+\begin{tikzpicture}[
+  entity/.style={draw, rounded corners=5pt, thick, align=center, minimum width=3.1cm, minimum height=0.9cm, font=\small},
+  rel/.style={-{Latex[length=2.5mm]}, thick},
+  note/.style={font=\footnotesize, color=PagodaInk}
+]
+\node[entity, fill=PagodaGold!15] (jornada) at (0,2.2) {Jornada};
+\node[entity, fill=PagodaGold!15] (usuario) at (0,0) {Usuario};
+\node[entity, fill=PagodaGold!15] (mesa) at (0,-2.2) {Mesa};
+\node[entity, fill=PagodaSage!14] (venta) at (5.0,0) {Venta};
+\node[entity, fill=PagodaSage!14] (item) at (9.8,1.4) {ItemVenta};
+\node[entity, fill=PagodaSage!14] (pago) at (9.8,-1.4) {Pago};
+\node[entity, fill=PagodaGold!15] (producto) at (14.6,1.4) {Producto};
+\node[entity, fill=PagodaGold!15] (categoria) at (19.3,1.4) {Categoria};
+
+\draw[rel] (jornada.east) -- node[above, note]{1 a muchas} (venta.north west);
+\draw[rel] (usuario.east) -- node[above, note]{atiende} (venta.west);
+\draw[rel] (mesa.east) -- node[below, note]{usa} (venta.south west);
+\draw[rel] (venta.east) -- node[above, note]{contiene} (item.west);
+\draw[rel] (venta.east) -- node[below, note]{se paga con} (pago.west);
+\draw[rel] (producto.west) -- node[above, note]{se captura como} (item.east);
+\draw[rel] (categoria.west) -- node[above, note]{agrupa} (producto.east);
+\end{tikzpicture}
+}
+\caption{Relación simplificada de entidades de operación y ventas}
+\end{figure}
+
+\section{Diagrama de Clases Simplificado}
+
+\begin{figure}[htbp]
+\centering
+\resizebox{0.96\textwidth}{!}{%
+\begin{tikzpicture}[
+  class/.style={draw, rounded corners=4pt, thick, align=left, text width=3.7cm, font=\scriptsize, fill=PagodaIvory},
+  rel/.style={-{Latex[length=2.5mm]}, thick}
+]
+\node[class] (venta) at (0,0) {\textbf{Venta}\\[-1mm]\rule{3.3cm}{0.3pt}\\id\\mesa\\usuario\\jornada\\totalCuenta\\fechaCreacion\\fechaCierre};
+\node[class] (pago) at (5.2,-1.5) {\textbf{Pago}\\[-1mm]\rule{3.3cm}{0.3pt}\\id\\venta\\metodoPago\\monto\\montoNeto\\propinaMonto\\propinaNeto};
+\node[class] (item) at (5.2,1.5) {\textbf{ItemVenta}\\[-1mm]\rule{3.3cm}{0.3pt}\\id\\venta\\producto\\cantidad\\precioUnitario\\numeroComensal};
+\node[class] (producto) at (10.4,1.5) {\textbf{Producto}\\[-1mm]\rule{3.3cm}{0.3pt}\\id\\nombre\\descripcion\\precio\\categoria\\activo};
+\node[class] (usuario) at (-5.2,1.5) {\textbf{Usuario}\\[-1mm]\rule{3.3cm}{0.3pt}\\id\\nombre\\rol\\pinHash\\activo\\fechaCreacion};
+\node[class] (mesa) at (-5.2,-1.5) {\textbf{Mesa}\\[-1mm]\rule{3.3cm}{0.3pt}\\id\\numero\\capacidad\\estado};
+\node[class] (jornada) at (0,-3.4) {\textbf{Jornada}\\[-1mm]\rule{3.3cm}{0.3pt}\\id\\fecha\\fondoCaja\\horaApertura\\horaCierre\\estado};
+
+\draw[rel] (usuario.east) -- (venta.west);
+\draw[rel] (mesa.east) -- (venta.west);
+\draw[rel] (jornada.north) -- (venta.south);
+\draw[rel] (venta.east) -- (item.west);
+\draw[rel] (venta.east) -- (pago.west);
+\draw[rel] (producto.west) -- (item.east);
+\end{tikzpicture}
+}
+\caption{Diagrama UML de clases de dominio}
+\end{figure}
+
+\section{Diagrama de Estados de Mesa}
+
+\begin{figure}[htbp]
+\centering
+\resizebox{0.84\textwidth}{!}{%
+\begin{tikzpicture}[
+  state/.style={draw, rounded corners=8pt, thick, align=center, minimum width=3.1cm, minimum height=0.9cm, font=\small, fill=PagodaIvory},
+  arrow/.style={-{Latex[length=3mm]}, thick}
+]
+\node[state] (libre) at (0,0) {LIBRE};
+\node[state] (ocupado) at (4.5,0) {OCUPADO};
+\node[state] (cuenta) at (9.1,0) {PIDIENDO\\CUENTA};
+\node[state] (limpiando) at (13.7,0) {LIMPIANDO};
+\draw[arrow] (libre) -- node[above, font=\small]{abrir mesa} (ocupado);
+\draw[arrow] (ocupado) -- node[above, font=\small]{solicitar cuenta} (cuenta);
+\draw[arrow] (cuenta) -- node[above, font=\small]{cerrar pago} (limpiando);
+\draw[arrow] (limpiando) to[bend left=25] node[below, font=\small]{mesa lista} (libre);
+\draw[arrow, dashed] (limpiando) to[bend left=20] node[above, font=\small]{ajustar propina} (cuenta);
+\end{tikzpicture}
+}
+\caption{Diagrama UML de estados de mesa}
+\end{figure}
+
+\section{Esquemas de Base de Datos}
+
+\begin{longtable}{p{0.22\textwidth}p{0.68\textwidth}}
+\caption{Esquemas PostgreSQL}\\
+\toprule
+\textbf{Esquema} & \textbf{Responsabilidad}\\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Esquema} & \textbf{Responsabilidad}\\
+\midrule
+\endhead
+\code{catalogos} & Datos base relativamente estables: roles, estados de mesa, estados de item, métodos de pago, tipos de cobro y categorías.\\
+\code{operacion} & Datos del negocio: usuarios, mesas, productos, jornadas, cierres y parámetros locales.\\
+\code{ventas} & Datos transaccionales: ventas, items de venta y pagos.\\
+\code{reportes} & Agregados y resúmenes para consultas administrativas.\\
+\bottomrule
+\end{longtable}
+
+\section{Tablas Principales}
+
+\begin{longtable}{p{0.28\textwidth}p{0.62\textwidth}}
+\caption{Tablas principales del sistema}\\
+\toprule
+\textbf{Tabla} & \textbf{Descripción}\\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Tabla} & \textbf{Descripción}\\
+\midrule
+\endhead
+\code{catalogos.roles} & Define ADMIN y MESERO.\\
+\code{catalogos.estados_mesa} & Define LIBRE, OCUPADO, PIDIENDO\_CUENTA y LIMPIANDO.\\
+\code{catalogos.estados_item} & Define PENDIENTE, ENVIADO y CANCELADO.\\
+\code{catalogos.metodos_pago} & Define EFECTIVO y TARJETA.\\
+\code{catalogos.tipos_cobro} & Define TOTAL, EQUITATIVO y POR\_PERSONA.\\
+\code{catalogos.categorias} & Agrupa productos del menú.\\
+\code{operacion.usuarios} & Guarda usuarios, rol, PIN hash, estado activo y fecha de creación.\\
+\code{operacion.mesas} & Guarda número, capacidad y estado de mesa.\\
+\code{operacion.productos} & Guarda nombre, descripción, precio, categoría y estado activo.\\
+\code{operacion.jornadas} & Guarda fecha, fondo de caja, apertura, cierre y estado.\\
+\code{operacion.cierre_dia} & Guarda el resultado consolidado de cierre diario.\\
+\code{operacion.parametros_local} & Guarda configuración persistente del local y contraseña hash de superusuario.\\
+\code{ventas.ventas} & Guarda pedidos/cuentas por mesa, usuario y jornada.\\
+\code{ventas.items_venta} & Guarda productos capturados por venta.\\
+\code{ventas.pagos} & Guarda método, monto, comisión, neto, propina bruta y propina neta.\\
+\code{reportes.resumen_ventas_diario} & Guarda totales diarios de ventas.\\
+\code{reportes.resumen_propinas_diario} & Guarda totales diarios de propina por efectivo/tarjeta.\\
+\code{reportes.resumen_platillos_diario} & Guarda desempeño de productos por día.\\
+\bottomrule
+\end{longtable}
+
+\chapter{Usuarios, Roles y Seguridad}
+
+\section{Roles}
+
+\begin{longtable}{p{0.18\textwidth}p{0.72\textwidth}}
+\caption{Usuarios del sistema}\\
+\toprule
+\textbf{Rol} & \textbf{Permisos esperados}\\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Rol} & \textbf{Permisos esperados}\\
+\midrule
+\endhead
+Superusuario & No es un usuario operativo normal. Es una contraseña maestra hash guardada en parámetros. Autoriza acciones sensibles como entrar al panel cuando no hay admin, borrar/desactivar usuarios y modificar menú.\\
+ADMIN & Accede al panel administrativo, gestiona jornada, reportes, usuarios, menú y configuración.\\
+MESERO & Accede a la app móvil, gestiona mesas, pedidos, tickets, pagos y propinas.\\
+Cliente & No tiene acceso al sistema; aparece indirectamente mediante comensales, pagos y tickets.\\
+\bottomrule
+\end{longtable}
+
+\section{Principios de Seguridad}
+
+\begin{itemize}[leftmargin=*]
+  \item Ningún PIN o contraseña debe guardarse en texto plano.
+  \item El PIN de usuarios se guarda como hash.
+  \item La contraseña de superusuario se guarda como hash en \code{operacion.parametros_local.superusuario_password_hash}.
+  \item Acciones sensibles del admin deben solicitar contraseña de superusuario.
+  \item Los tokens de sesión deben viajar en encabezados HTTP y no como parámetros de URL.
+  \item Si se borran todos los administradores, el sistema debe exigir superusuario antes de permitir registrar uno nuevo.
+\end{itemize}
+
+\section{Autenticación}
+
+\begin{longtable}{p{0.25\textwidth}p{0.65\textwidth}}
+\caption{Flujos de autenticación}\\
+\toprule
+\textbf{Flujo} & \textbf{Descripción}\\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Flujo} & \textbf{Descripción}\\
+\midrule
+\endhead
+Admin login & El panel solicita nombre/PIN. La API valida contra usuario ADMIN activo.\\
+Primer admin & Si no existen administradores activos, el panel debe solicitar superusuario antes de registrar el primer admin.\\
+Mesero login & La app solicita PIN y la API valida contra usuario MESERO activo.\\
+Superusuario & Se configura una vez, se guarda hash y se valida para operaciones críticas.\\
+\bottomrule
+\end{longtable}
+
+\chapter{Casos de Uso}
+
+\section{Mapa de Actores}
+
+\begin{figure}[htbp]
+\centering
+\resizebox{0.88\textwidth}{!}{%
+\begin{tikzpicture}[
+  actor/.style={draw, ellipse, thick, align=center, minimum width=2.7cm, minimum height=0.9cm, fill=PagodaGold!16, font=\small},
+  usecase/.style={draw, rounded corners=8pt, thick, align=left, text width=5.2cm, fill=PagodaSage!12, font=\small},
+  rel/.style={-{Latex[length=2.5mm]}, thick}
+]
+\node[actor] (admin) {Administrador};
+\node[actor, below=1.1cm of admin] (mesero) {Mesero};
+\node[actor, below=1.1cm of mesero] (super) {Superusuario};
+\node[usecase, right=2.2cm of admin] (uc1) {Gestionar jornada\\Consultar reportes\\Administrar usuarios};
+\node[usecase, right=2.2cm of mesero] (uc2) {Abrir mesa\\Capturar pedido\\Cerrar cuenta\\Registrar propina};
+\node[usecase, right=2.2cm of super] (uc3) {Autorizar acciones sensibles\\Crear primer admin\\Proteger menú y usuarios};
+\draw[rel] (admin) -- (uc1);
+\draw[rel] (mesero) -- (uc2);
+\draw[rel] (super) -- (uc3);
+\end{tikzpicture}
+}
+\caption{Actores y responsabilidades}
+\end{figure}
+
+\section{CU-01 Abrir Jornada}
+
+\begin{longtable}{p{0.22\textwidth}p{0.68\textwidth}}
+\toprule
+\textbf{Campo} & \textbf{Descripción}\\
+\midrule
+Actor & Administrador.\\
+Precondición & No debe existir una jornada abierta vigente.\\
+Disparador & El admin abre jornada desde Ventas o sección equivalente.\\
+Flujo principal & La UI consulta parámetros locales, toma el fondo de caja correspondiente al día, llama a la API para abrir jornada, la API guarda estado ABIERTA y publica \code{/topic/jornada}.\\
+Postcondición & El panel y la app mesero reconocen jornada abierta.\\
+Errores & Si ya existe jornada abierta, la API debe responder error controlado.\\
+\bottomrule
+\end{longtable}
+
+\section{CU-02 Cerrar Jornada}
+
+\begin{longtable}{p{0.22\textwidth}p{0.68\textwidth}}
+\toprule
+\textbf{Campo} & \textbf{Descripción}\\
+\midrule
+Actor & Administrador.\\
+Precondición & Existe jornada abierta.\\
+Disparador & Botón cerrar jornada.\\
+Flujo principal & La UI muestra confirmación, solicita PIN, llama a cerrar jornada, genera PDF de cierre, cierra sesión del mesero y limpia estado visual.\\
+Postcondición & La jornada queda CERRADA y los clientes conectados reciben \code{/topic/jornada}.\\
+Errores & PIN inválido, jornada no encontrada, jornada ya cerrada.\\
+\bottomrule
+\end{longtable}
+
+\section{CU-03 Abrir Mesa y Crear Venta}
+
+\begin{longtable}{p{0.22\textwidth}p{0.68\textwidth}}
+\toprule
+\textbf{Campo} & \textbf{Descripción}\\
+\midrule
+Actor & Mesero.\\
+Precondición & Mesero autenticado y mesa libre.\\
+Disparador & El mesero selecciona una mesa libre.\\
+Flujo principal & La app abre venta con mesa y usuario. La API asegura jornada activa, valida que la mesa no tenga venta abierta y publica evento de pedido creado.\\
+Postcondición & La mesa pasa a uso operativo y puede recibir items.\\
+Errores & Mesa ocupada, usuario no encontrado o mesa no encontrada.\\
+\bottomrule
+\end{longtable}
+
+\section{CU-04 Capturar Pedido}
+
+\begin{longtable}{p{0.22\textwidth}p{0.68\textwidth}}
+\toprule
+\textbf{Campo} & \textbf{Descripción}\\
+\midrule
+Actor & Mesero.\\
+Precondición & Venta abierta.\\
+Disparador & El mesero agrega productos desde el menú.\\
+Flujo principal & La app guarda items por producto, cantidad, comensal y precio unitario.\\
+Postcondición & La venta refleja total de cuenta actualizado.\\
+Errores & Producto inactivo, venta inexistente, cantidad inválida.\\
+\bottomrule
+\end{longtable}
+
+\section{CU-05 Cerrar Cuenta y Registrar Pago}
+
+\begin{longtable}{p{0.22\textwidth}p{0.68\textwidth}}
+\toprule
+\textbf{Campo} & \textbf{Descripción}\\
+\midrule
+Actor & Mesero.\\
+Precondición & Venta abierta con items.\\
+Disparador & El mesero procede a cobro.\\
+Flujo principal & La app registra uno o varios pagos. La API normaliza monto, comisión, monto neto, propina bruta y propina neta. Después cierra la venta.\\
+Postcondición & La venta queda con fecha de cierre y afecta reportes.\\
+Errores & Monto inválido, método de pago no encontrado, pago inexistente.\\
+\bottomrule
+\end{longtable}
+
+\section{CU-06 Ajustar Propina con Mesa en Limpieza}
+
+\begin{longtable}{p{0.22\textwidth}p{0.68\textwidth}}
+\toprule
+\textbf{Campo} & \textbf{Descripción}\\
+\midrule
+Actor & Mesero.\\
+Precondición & Venta cerrada y mesa en estado LIMPIANDO.\\
+Disparador & El mesero edita propina antes de liberar mesa.\\
+Flujo principal & La app llama a actualización de propina por venta. La API redistribuye la propina entre pagos portadores, recalcula neto y publica \code{/topic/propinas}.\\
+Postcondición & Propina diaria y acumulada reflejan el monto actualizado.\\
+Errores & Venta no encontrada, pago no encontrado, monto inválido.\\
+\bottomrule
+\end{longtable}
+
+\section{CU-07 Liberar Mesa}
+
+\begin{longtable}{p{0.22\textwidth}p{0.68\textwidth}}
+\toprule
+\textbf{Campo} & \textbf{Descripción}\\
+\midrule
+Actor & Mesero.\\
+Precondición & Mesa en LIMPIANDO y venta cerrada.\\
+Disparador & Botón Mesa Lista.\\
+Flujo principal & La app actualiza el estado local y/o remoto de mesa a LIBRE.\\
+Postcondición & La mesa puede recibir una nueva venta.\\
+Errores & Error de sincronización con backend, mesa no encontrada.\\
+\bottomrule
+\end{longtable}
+
+\section{CU-08 Gestionar Menú}
+
+\begin{longtable}{p{0.22\textwidth}p{0.68\textwidth}}
+\toprule
+\textbf{Campo} & \textbf{Descripción}\\
+\midrule
+Actor & Administrador con autorización de superusuario.\\
+Precondición & Admin autenticado.\\
+Disparador & Agregar, editar o eliminar producto.\\
+Flujo principal & La UI solicita superusuario y ejecuta operación contra categorías/productos.\\
+Postcondición & Producto queda creado, actualizado o inactivo/eliminado según política vigente.\\
+Errores & Superusuario inválido, datos inválidos, producto no encontrado.\\
+\bottomrule
+\end{longtable}
+
+\section{CU-09 Gestionar Usuarios}
+
+\begin{longtable}{p{0.22\textwidth}p{0.68\textwidth}}
+\toprule
+\textbf{Campo} & \textbf{Descripción}\\
+\midrule
+Actor & Administrador con autorización de superusuario.\\
+Precondición & Admin autenticado.\\
+Disparador & Crear o desactivar usuario.\\
+Flujo principal & La UI solicita superusuario. La API crea usuario con PIN hash o marca usuario como inactivo.\\
+Postcondición & Usuarios activos/inactivos se filtran en la tabla del admin.\\
+Errores & PIN inválido, rol inexistente, superusuario inválido.\\
+\bottomrule
+\end{longtable}
+
+\section{CU-10 Consultar Reportes}
+
+\begin{longtable}{p{0.22\textwidth}p{0.68\textwidth}}
+\toprule
+\textbf{Campo} & \textbf{Descripción}\\
+\midrule
+Actor & Administrador.\\
+Precondición & Admin autenticado.\\
+Disparador & Abrir Ventas, Top 5 o Propinas.\\
+Flujo principal & La UI consulta por jornada actual o rango de fechas. Debe validar que fecha fin no sea menor que fecha inicio.\\
+Postcondición & El admin ve tarjetas, tablas y gráficas actualizadas.\\
+Errores & Rango inválido, jornada sin datos, error de red.\\
+\bottomrule
+\end{longtable}
+
+\section{Catálogo Extendido de Casos de Uso}
+
+La siguiente tabla concentra los casos de uso funcionales, administrativos y de mantenimiento. No todos requieren una pantalla independiente; algunos son reglas internas que se disparan dentro de un flujo principal. Se incluyen para demostrar cobertura completa del comportamiento esperado del sistema.
+
+{\footnotesize
+\begin{longtable}{p{0.08\textwidth}p{0.16\textwidth}p{0.30\textwidth}p{0.36\textwidth}}
+\caption{Catálogo completo de casos de uso}\\
+\toprule
+\textbf{ID} & \textbf{Actor} & \textbf{Caso de uso} & \textbf{Resultado esperado}\\
+\midrule
+\endfirsthead
+\toprule
+\textbf{ID} & \textbf{Actor} & \textbf{Caso de uso} & \textbf{Resultado esperado}\\
+\midrule
+\endhead
+CU-01 & Superusuario & Configurar contraseña maestra & La contraseña se solicita una sola vez y se guarda como hash.\\
+CU-02 & Superusuario & Validar contraseña maestra & El sistema autoriza o rechaza acciones sensibles.\\
+CU-03 & Administrador & Registrar primer administrador & Se crea el primer ADMIN cuando no existen admins activos.\\
+CU-04 & Administrador & Iniciar sesión en panel & El admin entra a Ventas si su PIN es correcto y su usuario está activo.\\
+CU-05 & Mesero & Iniciar sesión en app & El mesero entra al mapa de mesas si el PIN es válido.\\
+CU-06 & Administrador & Cerrar sesión del panel & Se limpia token y se redirige a login.\\
+CU-07 & Mesero & Cerrar sesión de app & Se limpia sesión local y vuelve a login.\\
+CU-08 & Administrador & Abrir jornada & Se crea una jornada ABIERTA con fondo de caja.\\
+CU-09 & Sistema & Detectar jornada abierta & Admin y mesero saben si pueden operar.\\
+CU-10 & Administrador & Cerrar jornada con confirmación & Se solicita confirmación y PIN antes de cerrar.\\
+CU-11 & Sistema & Notificar cierre de jornada & Clientes conectados reciben evento y limpian estado.\\
+CU-12 & Sistema & Cerrar jornada antigua & Si cambió el día, se normaliza una jornada abierta anterior.\\
+CU-13 & Administrador & Consultar ventas de jornada & Se listan tickets cerrados de la jornada activa.\\
+CU-14 & Administrador & Actualizar ventas en tiempo real & Al cerrar pedido, Ventas se refresca por WebSocket.\\
+CU-15 & Administrador & Consultar ventas por rango & Se muestran ventas históricas filtradas.\\
+CU-16 & Administrador & Validar rango de fechas en Ventas & La fecha fin no puede ser menor a la fecha inicio.\\
+CU-17 & Administrador & Consultar Top 5 total & Se muestran los productos más vendidos del periodo general.\\
+CU-18 & Administrador & Consultar Top 5 por rango & Se recalculan ranking y gráfica por fechas.\\
+CU-19 & Administrador & Validar rango de Top 5 & Se bloquea consulta si fecha fin es menor a inicio.\\
+CU-20 & Administrador & Consultar gráfica de flujo & Se observa comportamiento de ventas de forma visual.\\
+CU-21 & Administrador & Consultar propina diaria & Se muestra propina generada en el día/jornada.\\
+CU-22 & Administrador & Consultar propina acumulada & Se muestra acumulado del periodo de propinas.\\
+CU-23 & Administrador & Filtrar tickets de propina del día & La tabla muestra solo tickets diarios.\\
+CU-24 & Administrador & Filtrar tickets acumulados & La tabla muestra tickets del acumulado.\\
+CU-25 & Administrador & Validar rango de Propinas & Se bloquea consulta si fecha fin es menor a inicio.\\
+CU-26 & Administrador & Ver detalle de propina por ticket & Se ve folio, fecha, mesa, método, bruto y neto.\\
+CU-27 & Administrador & Crear usuario & Se solicita superusuario y se guarda PIN hash.\\
+CU-28 & Administrador & Editar usuario & Se actualiza nombre, rol o PIN según corresponda.\\
+CU-29 & Administrador & Inactivar usuario & El usuario deja de poder iniciar sesión sin borrarse físicamente.\\
+CU-30 & Administrador & Reactivar usuario & Un usuario inactivo puede volver a operar.\\
+CU-31 & Administrador & Filtrar usuarios activos & La lista muestra solo usuarios operativos.\\
+CU-32 & Administrador & Filtrar usuarios inactivos & La lista muestra usuarios deshabilitados.\\
+CU-33 & Administrador & Crear producto & Se solicita superusuario y se agrega producto al menú.\\
+CU-34 & Administrador & Editar producto & Se actualiza nombre, descripción, precio o categoría.\\
+CU-35 & Administrador & Inactivar producto & El producto deja de aparecer para nuevas ventas.\\
+CU-36 & Administrador & Gestionar categorías & Se consultan y mantienen agrupaciones del menú.\\
+CU-37 & Administrador & Consultar configuración & Se cargan parámetros reales desde base de datos.\\
+CU-38 & Administrador & Guardar configuración & Fondos, comisión, rol y textos quedan persistidos.\\
+CU-39 & Administrador & Confirmar persistencia visual & Al volver a entrar se muestran los valores guardados.\\
+CU-40 & Mesero & Consultar mapa de mesas & La app muestra mesas y estados actuales.\\
+CU-41 & Mesero & Abrir mesa libre & Se crea venta asociada a mesa, mesero y jornada.\\
+CU-42 & Mesero & Bloquear mesa ocupada & El sistema impide abrir una mesa con venta activa.\\
+CU-43 & Mesero & Consultar menú & Se listan categorías y productos activos.\\
+CU-44 & Mesero & Agregar producto al pedido & Se crea item de venta con cantidad y comensal.\\
+CU-45 & Mesero & Quitar producto del pedido & Se elimina item antes de cerrar cuenta.\\
+CU-46 & Mesero & Consultar resumen de cuenta & Se visualiza subtotal, total, pagos y propina.\\
+CU-47 & Mesero & Cobrar total en efectivo & Se registra pago sin comisión.\\
+CU-48 & Mesero & Cobrar total con tarjeta & Se registra pago con comisión y neto.\\
+CU-49 & Mesero & Cobrar con pago mixto & Se registran pagos separados por método.\\
+CU-50 & Mesero & Cobrar por comensal & Se asigna pago a comensal cuando el flujo lo requiere.\\
+CU-51 & Mesero & Cerrar cuenta & La venta recibe fecha de cierre y afecta reportes.\\
+CU-52 & Mesero & Generar ticket PDF & Se crea comprobante visual de la cuenta.\\
+CU-53 & Mesero & Recuperar ticket & Se consulta una venta cerrada para reimpresión.\\
+CU-54 & Mesero & Ver vista previa de ticket & Se muestra el ticket antes de imprimir.\\
+CU-55 & Mesero & Reimprimir ticket & Se deja preparado el botón para impresora física.\\
+CU-56 & Mesero & Mantener mesa en limpieza & Después del cobro la mesa permite ajuste de propina.\\
+CU-57 & Mesero & Ajustar propina hacia arriba & El sistema recalcula propina diaria y acumulada.\\
+CU-58 & Mesero & Ajustar propina hacia abajo & El sistema recalcula propina y evita descuadres.\\
+CU-59 & Mesero & Liberar mesa & La mesa vuelve a estado LIBRE para otra venta.\\
+CU-60 & Sistema & Normalizar pagos & La API separa monto base, propina y netos.\\
+CU-61 & Sistema & Calcular comisión bancaria & El neto de tarjeta se calcula con parámetros locales.\\
+CU-62 & Sistema & Publicar evento de pedido & El admin recibe actualización sin consultar manualmente.\\
+CU-63 & Sistema & Publicar evento de propinas & Propinas se refresca al registrar o ajustar montos.\\
+CU-64 & Sistema & Publicar evento de Top 5 & La sección Top 5 puede refrescarse con ventas nuevas.\\
+CU-65 & Sistema & Manejar error de red & La UI muestra mensaje comprensible y no se rompe.\\
+CU-66 & Sistema & Manejar PIN incorrecto & Se rechaza acción sin revelar información sensible.\\
+CU-67 & Sistema & Manejar superusuario incorrecto & Se bloquea acción administrativa protegida.\\
+CU-68 & Sistema & Verificar salud de API & \code{/api/health} confirma que el backend responde.\\
+CU-69 & Desarrollador & Ejecutar scripts SQL de mantenimiento & Se corrigen datos puntuales con respaldo y revisión.\\
+CU-70 & Desarrollador & Desplegar backend & Se construye imagen Docker y se publica en el host.\\
+CU-71 & Desarrollador & Desplegar admin & Se genera build Angular y se publica en GitHub Pages.\\
+CU-72 & Desarrollador & Generar APK & Se compila la app Flutter para instalación.\\
+\bottomrule
+\end{longtable}
+}
+
+\section{Casos Alternos y Reglas de Excepción}
+
+\begin{longtable}{p{0.24\textwidth}p{0.31\textwidth}p{0.35\textwidth}}
+\caption{Reglas alternas relevantes}\\
+\toprule
+\textbf{Situación} & \textbf{Respuesta del sistema} & \textbf{Motivo}\\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Situación} & \textbf{Respuesta del sistema} & \textbf{Motivo}\\
+\midrule
+\endhead
+No existe jornada abierta & Bloquear operación o crear jornada según flujo permitido. & Evita ventas huérfanas sin fecha operativa.\\
+Mesa ya tiene venta activa & Rechazar apertura duplicada. & Evita doble cuenta sobre la misma mesa.\\
+PIN incorrecto & Mostrar error controlado. & Protege acciones de usuario.\\
+Superusuario incorrecto & Rechazar acción sensible. & Protege menú, usuarios y setup.\\
+Fecha fin menor que inicio & Bloquear consulta. & Evita reportes incoherentes.\\
+Propina negativa & Normalizar a cero o rechazar según endpoint. & Evita totales imposibles.\\
+Tarjeta sin comisión definida & Usar comisión de configuración o cero como respaldo. & Mantiene continuidad operativa.\\
+Cierre de jornada con mesas en limpieza & Cerrar jornada y limpiar estado local al volver a login. & Una jornada cerrada no debe arrastrar mesas del día anterior.\\
+Error de WebSocket & Permitir consulta manual de respaldo. & La operación no debe depender únicamente del tiempo real.\\
+\bottomrule
+\end{longtable}
+
+\chapter{Backend API}
+
+\section{Ubicación}
+
+El backend se encuentra en \code{pagoda-api}. Es una aplicación Java Spring Boot con estructura por capas:
+
+\begin{lstlisting}
+pagoda-api/src/main/java/com/pagoda/pagoda_api/
+  config/          Seguridad, reloj de negocio, WebSocket
+  controller/      Endpoints REST
+  dto/             Objetos de entrada y salida
+  entity/          Entidades JPA
+  exception/       Errores controlados
+  repository/      Acceso a base de datos
+  service/         Reglas de negocio
+\end{lstlisting}
+
+\section{Responsabilidad por Capa}
+
+\begin{longtable}{p{0.22\textwidth}p{0.68\textwidth}}
+\caption{Capas backend}\\
+\toprule
+\textbf{Capa} & \textbf{Responsabilidad}\\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Capa} & \textbf{Responsabilidad}\\
+\midrule
+\endhead
+\code{controller} & Recibe peticiones HTTP, valida entrada básica y delega al servicio. No debe contener reglas complejas.\\
+\code{service} & Contiene reglas de negocio: abrir/cerrar jornada, abrir/cerrar venta, calcular pagos, recalcular propinas, reportes y seguridad.\\
+\code{repository} & Consultas JPA. No debe contener lógica de negocio que cambie reglas operativas.\\
+\code{entity} & Modelo persistente. Debe mapear correctamente tablas, relaciones y columnas.\\
+\code{dto} & Contratos de entrada/salida para evitar exponer estructuras internas cuando no convenga.\\
+\code{config} & Configuración transversal: seguridad, WebSocket, reloj de negocio.\\
+\code{exception} & Errores de dominio con mensajes controlados para la UI.\\
+\bottomrule
+\end{longtable}
+
+\section{Controladores REST}
+
+\begin{longtable}{p{0.25\textwidth}p{0.22\textwidth}p{0.43\textwidth}}
+\caption{Endpoints principales}\\
+\toprule
+\textbf{Controlador} & \textbf{Base path} & \textbf{Responsabilidad}\\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Controlador} & \textbf{Base path} & \textbf{Responsabilidad}\\
+\midrule
+\endhead
+\code{AdminController} & \code{/api/admin} & Superusuario, login admin, verificación de PIN y perfil.\\
+\code{InitializationController} & \code{/api/admin/initialize} & Inicialización administrativa.\\
+\code{AuthController} & \code{/api/auth} & Verificar setup y registrar primer administrador.\\
+\code{MeseroController} & \code{/api/mesero} & Login de meseros.\\
+\code{UsuarioController} & \code{/api/operacion/usuarios} & CRUD/activación de usuarios operativos.\\
+\code{JornadaController} & \code{/api/operacion/jornadas} & Abrir, consultar y cerrar jornadas.\\
+\code{JornadaEstadoController} & \code{/api/jornadas} & Consulta rápida de estado de jornada.\\
+\code{VentaController} & \code{/api/ventas} & Ventas activas, ventas por jornada, abrir/cerrar venta y actualizar propina.\\
+\code{ItemVentaController} & \code{/api/ventas/items} & Items asociados a ventas.\\
+\code{PagoController} & \code{/api/ventas/pagos} & Pagos asociados a ventas.\\
+\code{ProductoController} & \code{/api/productos} & Gestión de productos del menú.\\
+\code{CategoriaController} & \code{/api/categorias} & Gestión de categorías.\\
+\code{MesaController} & \code{/api/mesas} & Gestión y consulta de mesas.\\
+\code{ParametrosLocalController} & \code{/api/operacion/parametros} & Configuración persistente del local.\\
+\code{ResumenVentasDiarioController} & \code{/api/reportes/ventas-diarias} & Reportes de ventas.\\
+\code{ResumenPlatillosDiarioController} & \code{/api/reportes/platillos} & Top 5 y flujo de ventas por platillos.\\
+\code{ResumenPropinaDiarioController} & \code{/api/reportes/propinas} & Propinas actual, por jornada, por rango y detalle.\\
+\code{CierreDiaController} & \code{/api/operacion/cierres-dia} & Cierres administrativos de día.\\
+\code{HealthController} & \code{/api/health} & Prueba de salud de API.\\
+\bottomrule
+\end{longtable}
+
+\section{Detalle de Endpoints Relevantes}
+
+\begin{longtable}{p{0.14\textwidth}p{0.34\textwidth}p{0.42\textwidth}}
+\caption{Operaciones REST relevantes}\\
+\toprule
+\textbf{Método} & \textbf{Ruta} & \textbf{Uso}\\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Método} & \textbf{Ruta} & \textbf{Uso}\\
+\midrule
+\endhead
+GET & \code{/api/admin/superuser/status} & Saber si ya existe contraseña de superusuario.\\
+POST & \code{/api/admin/superuser/setup} & Configurar contraseña inicial de superusuario.\\
+POST & \code{/api/admin/superuser/verify} & Validar contraseña de superusuario para acciones críticas.\\
+POST & \code{/api/admin/login} & Login de administrador.\\
+POST & \code{/api/admin/verify-pin} & Validar PIN para acciones como cierre de jornada.\\
+GET & \code{/api/admin/perfil} & Obtener perfil del admin autenticado.\\
+GET & \code{/api/auth/check-setup} & Saber si el sistema ya tiene setup administrativo.\\
+POST & \code{/api/auth/register-first-admin} & Registrar primer administrador.\\
+POST & \code{/api/mesero/login} & Login de mesero desde app.\\
+GET & \code{/api/operacion/jornadas} & Listar jornadas.\\
+GET & \code{/api/operacion/jornadas/estado} & Consultar jornada abierta.\\
+POST & \code{/api/operacion/jornadas/abrir} & Abrir jornada.\\
+PUT & \code{/api/operacion/jornadas/cerrar/{id}} & Cerrar jornada.\\
+GET & \code{/api/ventas/activas} & Consultar ventas abiertas.\\
+GET & \code{/api/ventas/jornada/{jornadaId}} & Ventas de una jornada.\\
+POST & \code{/api/ventas/abrir} & Abrir venta.\\
+PUT & \code{/api/ventas/{id}/cerrar} & Cerrar venta.\\
+PUT & \code{/api/ventas/{id}/propina} & Ajustar propina de venta cerrada.\\
+GET & \code{/api/ventas/items/venta/{ventaId}} & Items de una venta.\\
+POST & \code{/api/ventas/items} & Crear item de venta.\\
+DELETE & \code{/api/ventas/items/{id}} & Eliminar item.\\
+GET & \code{/api/ventas/pagos/venta/{ventaId}} & Pagos de una venta.\\
+POST & \code{/api/ventas/pagos} & Crear pago.\\
+GET & \code{/api/reportes/platillos/top5} & Top 5 de platillos por fecha/rango.\\
+GET & \code{/api/reportes/platillos/flujo-ventas} & Datos para gráfica de flujo de ventas.\\
+GET & \code{/api/reportes/propinas/actual} & Propina de periodo actual.\\
+GET & \code{/api/reportes/propinas/detalle} & Detalle de tickets con propina.\\
+GET & \code{/api/operacion/parametros} & Leer configuración.\\
+POST & \code{/api/operacion/parametros} & Guardar configuración.\\
+\bottomrule
+\end{longtable}
+
+\section{Servicios Críticos}
+
+\begin{longtable}{p{0.28\textwidth}p{0.62\textwidth}}
+\caption{Servicios backend clave}\\
+\toprule
+\textbf{Servicio} & \textbf{Responsabilidad}\\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Servicio} & \textbf{Responsabilidad}\\
+\midrule
+\endhead
+\code{JornadaService} & Abre/cierra jornadas, asegura una jornada activa, cierra jornadas antiguas por cambio de día y publica eventos.\\
+\code{VentaService} & Abre/cierra ventas, valida mesa/usuario, normaliza pagos antes de cierre y publica eventos de pedido, top 5 y propinas.\\
+\code{PagoService} & Crea pagos, calcula monto neto, normaliza propina, recalcula propina al ajustar ventas cerradas y publica actualización de propinas.\\
+\code{ResumenPropinaDiarioService} & Calcula propinas por periodo, por rango y detalle de tickets. Es crítico para evitar descuadres.\\
+\code{ResumenPlatillosDiarioService} & Calcula top 5 y flujo de ventas por platillo.\\
+\code{ResumenVentasDiarioService} & Consolida totales de ventas por jornada/día.\\
+\code{ParametrosLocalService} & Lee y guarda configuración persistente del negocio.\\
+\code{SuperuserAuthService} & Configura y valida contraseña hash de superusuario.\\
+\code{AdminAuthService} & Valida credenciales administrativas y PIN.\\
+\code{UsuarioService} & Gestiona creación, actualización y estado activo/inactivo de usuarios.\\
+\code{ProductoService} & Gestiona productos del menú.\\
+\bottomrule
+\end{longtable}
+
+\section{Reglas de Negocio Críticas}
+
+\subsection{Jornada}
+
+\begin{itemize}[leftmargin=*]
+  \item Solo debe existir una jornada abierta vigente.
+  \item Si una jornada quedó abierta de un día anterior, debe cerrarse automáticamente con hora de cierre al inicio del día siguiente.
+  \item Cerrar jornada debe notificar a admin y app mesero por \code{/topic/jornada}.
+  \item Al cerrar jornada, la app mesero debe limpiar mesas/pedidos locales para no reabrir estados LIMPIANDO al siguiente login.
+\end{itemize}
+
+\subsection{Ventas}
+
+\begin{itemize}[leftmargin=*]
+  \item No puede abrirse una venta si la mesa ya tiene venta abierta.
+  \item Toda venta debe asociarse a mesa, usuario y jornada.
+  \item Cerrar venta debe normalizar pagos antes de guardar fecha de cierre.
+  \item Una venta cerrada ya no debe aceptar items nuevos.
+\end{itemize}
+
+\subsection{Propinas}
+
+\begin{itemize}[leftmargin=*]
+  \item La propina bruta es el monto que dejó el cliente.
+  \item La propina neta aplica comisión si la propina fue pagada con tarjeta.
+  \item Si la propina se pagó en efectivo, bruta y neta son iguales.
+  \item Al ajustar propina de una venta cerrada, se deben actualizar los pagos que cargan propina y recalcular reportes.
+  \item La UI de propinas debe consultar detalle oficial y no sumar solamente tarjetas visuales.
+\end{itemize}
+
+\subsection{Configuración}
+
+\begin{itemize}[leftmargin=*]
+  \item \code{ParametrosLocal} es la fuente de verdad de fondos, comisión bancaria, rol por defecto, impresora y textos de ticket.
+  \item El admin debe cargar parámetros desde la API al entrar a Configuración.
+  \item El formulario debe reflejar valores reales guardados sin depender de tocar un toggle.
+  \item Guardar configuración debe persistir en base de datos y refrescar estado visual desde la respuesta o desde una nueva consulta.
+\end{itemize}
+
+\chapter{Panel Administrativo Angular}
+
+\section{Ubicación}
+
+El panel administrativo está en \code{admin-pagoda}. La aplicación está construida con Angular y se organiza en páginas, servicios core y componentes compartidos.
+
+\begin{lstlisting}
+admin-pagoda/src/app/
+  app.routes.ts
+  app.config.ts
+  app/
+    pages/
+      login/
+      ventas/
+      top5/
+      menu-management/
+      propinas/
+      configuracion/
+      usuarios/
+    core/
+      api/
+      auth/
+      jornada/
+      ui/
+      websocket/
+    shared/
+      toast-container/
+\end{lstlisting}
+
+\section{Rutas del Admin}
+
+\begin{longtable}{p{0.22\textwidth}p{0.26\textwidth}p{0.42\textwidth}}
+\caption{Rutas Angular}\\
+\toprule
+\textbf{Ruta} & \textbf{Componente} & \textbf{Uso}\\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Ruta} & \textbf{Componente} & \textbf{Uso}\\
+\midrule
+\endhead
+\code{/login} & \code{Login} & Ingreso de admin, setup inicial y superusuario.\\
+\code{/ventas} & \code{Ventas} & Jornada, ventas, cierre e impresión de reporte.\\
+\code{/top5} & \code{Top5Component} & Ranking de platillos y gráfica de flujo.\\
+\code{/menu} & \code{MenuManagement} & Gestión de categorías/productos.\\
+\code{/propinas} & \code{PropinasComponent} & Propinas del día, acumuladas y detalle de tickets.\\
+\code{/configuracion} & \code{Configuracion} & Parámetros locales persistentes.\\
+\code{/usuarios} & \code{Usuarios} & Alta, edición, activación/inactivación de usuarios.\\
+\bottomrule
+\end{longtable}
+
+\section{Servicios Core}
+
+\begin{longtable}{p{0.28\textwidth}p{0.62\textwidth}}
+\caption{Servicios Angular}\\
+\toprule
+\textbf{Servicio} & \textbf{Responsabilidad}\\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Servicio} & \textbf{Responsabilidad}\\
+\midrule
+\endhead
+\code{api-client.service.ts} & Centraliza llamadas HTTP a la API. Debe ser el primer lugar a revisar si cambia un endpoint.\\
+\code{api.config.ts} & Define URL base de API. Debe apuntar a backend local, Render o producción según despliegue.\\
+\code{api.types.ts} & Tipos TypeScript compartidos entre páginas.\\
+\code{auth.service.ts} & Maneja login, token, perfil, superusuario y logout.\\
+\code{auth.guard.ts} & Protege rutas administrativas.\\
+\code{auth-token.interceptor.ts} & Adjunta token a peticiones.\\
+\code{http-error.interceptor.ts} & Convierte errores HTTP en mensajes manejables.\\
+\code{jornada.service.ts} & Estado de jornada compartido para páginas del admin.\\
+\code{websocket.service.ts} & Conexión STOMP/SockJS y suscripción a topics.\\
+\code{admin-settings.service.ts} & Estado visual/configurable compartido del admin.\\
+\code{toast.service.ts} & Notificaciones coherentes con UX del panel.\\
+\bottomrule
+\end{longtable}
+
+\section{Páginas Administrativas}
+
+\subsection{Ventas}
+
+Archivos principales:
+
+\begin{lstlisting}
+admin-pagoda/src/app/app/pages/ventas/ventas.ts
+admin-pagoda/src/app/app/pages/ventas/ventas.html
+admin-pagoda/src/app/app/pages/ventas/ventas.css
+\end{lstlisting}
+
+Responsabilidades:
+
+\begin{itemize}[leftmargin=*]
+  \item Mostrar jornada actual y permitir apertura/cierre.
+  \item Mostrar ventas de jornada y actualizarse por WebSocket.
+  \item Validar cierre con confirmación visual y PIN.
+  \item Generar PDF de cierre.
+  \item Cerrar sesión/limpiar estado cuando la jornada se cierre.
+\end{itemize}
+
+\subsection{Top 5}
+
+Archivos principales:
+
+\begin{lstlisting}
+admin-pagoda/src/app/app/pages/top5/top5.ts
+admin-pagoda/src/app/app/pages/top5/top5.html
+admin-pagoda/src/app/app/pages/top5/top5.css
+\end{lstlisting}
+
+Responsabilidades:
+
+\begin{itemize}[leftmargin=*]
+  \item Consultar top 5 por jornada actual o rango de fechas.
+  \item Validar que fecha fin no sea menor que fecha inicio.
+  \item Mostrar gráfica de flujo de ventas.
+  \item Actualizar datos si llega evento \code{/topic/top5}.
+\end{itemize}
+
+\subsection{Propinas}
+
+Archivos principales:
+
+\begin{lstlisting}
+admin-pagoda/src/app/app/pages/propinas/propinas.ts
+admin-pagoda/src/app/app/pages/propinas/propinas.html
+admin-pagoda/src/app/app/pages/propinas/propinas.css
+\end{lstlisting}
+
+Responsabilidades:
+
+\begin{itemize}[leftmargin=*]
+  \item Mostrar propina diaria y acumulada.
+  \item Mostrar detalle por ticket con folio, fecha, mesa, método, bruto y neto cuando aplique.
+  \item Filtrar entre tickets del día y tickets acumulados.
+  \item Validar rango de fechas igual que Ventas.
+  \item Actualizarse por \code{/topic/propinas}.
+\end{itemize}
+
+\subsection{Menú}
+
+Archivos principales:
+
+\begin{lstlisting}
+admin-pagoda/src/app/app/pages/menu-management/menu-management.ts
+admin-pagoda/src/app/app/pages/menu-management/menu-management.html
+admin-pagoda/src/app/app/pages/menu-management/menu-management.css
+\end{lstlisting}
+
+Responsabilidades:
+
+\begin{itemize}[leftmargin=*]
+  \item Crear, editar y eliminar/inactivar productos.
+  \item Crear o gestionar categorías si está habilitado.
+  \item Solicitar superusuario antes de acciones sensibles.
+  \item Mantener UI consistente con el tema Pagoda.
+\end{itemize}
+
+\subsection{Usuarios}
+
+Archivos principales:
+
+\begin{lstlisting}
+admin-pagoda/src/app/app/pages/usuarios/usuarios.ts
+admin-pagoda/src/app/app/pages/usuarios/usuarios.html
+admin-pagoda/src/app/app/pages/usuarios/usuarios.css
+\end{lstlisting}
+
+Responsabilidades:
+
+\begin{itemize}[leftmargin=*]
+  \item Crear usuarios con rol ADMIN o MESERO.
+  \item Solicitar superusuario al crear o inactivar usuarios.
+  \item Mostrar filtros Activos/Inactivos.
+  \item Mantener vista por defecto en Activos al cambiar de sección.
+\end{itemize}
+
+\subsection{Configuración}
+
+Archivos principales:
+
+\begin{lstlisting}
+admin-pagoda/src/app/app/pages/configuracion/configuracion.ts
+admin-pagoda/src/app/app/pages/configuracion/configuracion.html
+admin-pagoda/src/app/app/pages/configuracion/configuracion.css
+\end{lstlisting}
+
+Responsabilidades:
+
+\begin{itemize}[leftmargin=*]
+  \item Cargar parámetros reales desde la API al abrir la página.
+  \item Mostrar fondos por día, comisión bancaria, rol por defecto, auto logout, impresora, textos de ticket y opciones de impresión.
+  \item Guardar configuración en \code{/api/operacion/parametros}.
+  \item Evitar valores visuales obsoletos; después de guardar, refrescar estado desde API.
+\end{itemize}
+
+\chapter{App Mesero Flutter}
+
+\section{Ubicación}
+
+La app móvil está en \code{mesero-pagoda}. Su estructura actual es compacta:
+
+\begin{lstlisting}
+mesero-pagoda/lib/
+  main.dart
+  core/api_config.dart
+  models/models.dart
+  providers/order_provider.dart
+  screens/login_screen.dart
+  screens/table_map_screen.dart
+  screens/menu_screen.dart
+  screens/order_summary_screen.dart
+  theme/app_theme.dart
+\end{lstlisting}
+
+\section{Responsabilidad por Archivo}
+
+\begin{longtable}{p{0.32\textwidth}p{0.58\textwidth}}
+\caption{Módulos Flutter}\\
+\toprule
+\textbf{Archivo} & \textbf{Responsabilidad}\\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Archivo} & \textbf{Responsabilidad}\\
+\midrule
+\endhead
+\code{main.dart} & Inicializa Flutter, tema, providers y pantalla inicial.\\
+\code{core/api_config.dart} & Define URL base de API y funciones HTTP auxiliares.\\
+\code{models/models.dart} & Modelos de mesa, producto, venta, pago, usuario y objetos usados por la app.\\
+\code{providers/order_provider.dart} & Estado central de pedidos, mesas, sesión, tickets y comunicación con API.\\
+\code{screens/login_screen.dart} & Login del mesero por PIN.\\
+\code{screens/table_map_screen.dart} & Mapa de mesas, estados, botones de propina y liberar mesa.\\
+\code{screens/menu_screen.dart} & Selección de productos por categoría.\\
+\code{screens/order_summary_screen.dart} & Resumen de cuenta, cobro, propina, ticket y PDF.\\
+\code{theme/app_theme.dart} & Tema visual oscuro/neón usado en la app.\\
+\bottomrule
+\end{longtable}
+
+\section{Flujo Principal de App}
+
+\begin{enumerate}[leftmargin=*]
+  \item \code{login_screen.dart} solicita PIN.
+  \item \code{order_provider.dart} valida PIN contra \code{/api/mesero/login}.
+  \item \code{table_map_screen.dart} consulta mesas y ventas activas.
+  \item El mesero selecciona mesa y abre/carga venta.
+  \item \code{menu_screen.dart} permite agregar productos.
+  \item \code{order_summary_screen.dart} calcula cuenta, registra pagos y genera ticket.
+  \item Al cerrar venta, la mesa queda en LIMPIANDO para permitir ajuste final de propina.
+  \item El mesero puede editar propina y después liberar mesa.
+\end{enumerate}
+
+\section{Ticket y Reimpresión}
+
+La app usa los paquetes \code{pdf} y \code{printing}. Actualmente la vista de recuperación debe permitir:
+
+\begin{itemize}[leftmargin=*]
+  \item Consultar tickets/ventas cerradas disponibles.
+  \item Mostrar vista previa del ticket.
+  \item Mostrar botón \textbf{Reimprimir ticket}.
+  \item Dejar el botón preparado para conectar impresora física posteriormente.
+\end{itemize}
+
+\chapter{Reportes}
+
+\section{Ventas}
+
+La sección Ventas debe reflejar la jornada actual y actualizarse automáticamente cuando se cierran pedidos. La fuente recomendada es:
+
+\begin{itemize}[leftmargin=*]
+  \item \code{/api/operacion/jornadas/estado} para detectar jornada abierta.
+  \item \code{/api/ventas/jornada/{jornadaId}} para ventas de jornada.
+  \item \code{/topic/pedido} para refresco automático al cerrar pedidos.
+  \item \code{/topic/jornada} para limpiar/actualizar al abrir o cerrar jornada.
+\end{itemize}
+
+\section{Top 5}
+
+Top 5 debe mostrar información agregada de productos. Cuando se selecciona rango de fechas, la gráfica debe usar el mismo rango. La validación obligatoria es:
+
+\begin{quote}
+La fecha fin no puede ser menor que la fecha inicio.
+\end{quote}
+
+Si el rango es inválido, la UI debe bloquear la consulta y mostrar mensaje visual consistente, no un alert nativo del navegador.
+
+\section{Propinas}
+
+Propinas debe separar:
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Propina del día}: tickets de la fecha/jornada visible.
+  \item \textbf{Propina acumulada}: periodo configurado de acumulación o rango seleccionado.
+  \item \textbf{Detalle}: folio, fecha, mesa, método, propina bruta y propina neta si fue tarjeta.
+\end{itemize}
+
+La tabla no debe crecer sin control. Debe permitir filtros como Día/Acumulado y paginación si el volumen aumenta.
+
+\section{Cálculo de Tarjeta}
+
+Para tarjeta:
+
+\[
+\text{neto} = \text{bruto} - \left(\text{bruto} \times \frac{\text{comisión}}{100}\right)
+\]
+
+Para efectivo:
+
+\[
+\text{neto} = \text{bruto}
+\]
+
+\chapter{Configuración Persistente}
+
+\section{Fuente de Verdad}
+
+La configuración persistente vive en \code{operacion.parametros_local}. Los valores visuales del admin deben provenir de la API, no de defaults del frontend. Los defaults solo se usan como respaldo cuando la API no responde o la base no tiene fila inicial.
+
+\section{Campos Relevantes}
+
+\begin{longtable}{p{0.3\textwidth}p{0.6\textwidth}}
+\caption{Parámetros locales}\\
+\toprule
+\textbf{Campo} & \textbf{Uso}\\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Campo} & \textbf{Uso}\\
+\midrule
+\endhead
+\code{fondo_lunes} a \code{fondo_domingo} & Fondo inicial sugerido por día de semana.\\
+\code{comision_bancaria} & Porcentaje usado para calcular netos de tarjeta.\\
+\code{rol_por_defecto} & Rol preseleccionado al crear usuarios.\\
+\code{auto_logout_minutos} & Tiempo de cierre automático de sesión.\\
+\code{impresora_tickets} & Identificador/nombre de impresora futura.\\
+\code{imprimir_resumen_cierre} & Define si el cierre imprime resumen.\\
+\code{encabezado_ticket} & Texto superior del ticket.\\
+\code{pie_ticket} & Texto inferior del ticket.\\
+\code{superusuario_password_hash} & Hash de contraseña de superusuario.\\
+\bottomrule
+\end{longtable}
+
+\section{Regla de UI}
+
+Al entrar a Configuración:
+
+\begin{enumerate}[leftmargin=*]
+  \item Mostrar estado de carga.
+  \item Consultar \code{GET /api/operacion/parametros}.
+  \item Poblar formulario completo con la respuesta.
+  \item No sobrescribir valores con defaults locales después de recibir API.
+  \item Al guardar, llamar \code{POST /api/operacion/parametros}.
+  \item Después de guardar, refrescar datos desde API o usar la respuesta guardada como nuevo estado oficial.
+\end{enumerate}
+
+\chapter{Despliegue y Operación}
+
+\section{Variables y Ambientes}
+
+El backend usa \code{spring.profiles.active=dev} en \code{application.properties}. En despliegue real se recomienda controlar el perfil y la conexión a base de datos por variables de entorno.
+
+\begin{lstlisting}
+DATABASE_URL=postgres://usuario:password@host:puerto/database?sslmode=require
+SPRING_PROFILES_ACTIVE=prod
+APP_TIME_ZONE=America/Mexico_City
+\end{lstlisting}
+
+\section{Backend con Docker}
+
+Archivo principal:
+
+\begin{lstlisting}
+pagoda-api/Dockerfile
+\end{lstlisting}
+
+Flujo típico:
+
+\begin{lstlisting}
+cd pagoda-api
+./mvnw clean package -DskipTests
+docker build -t usuario/pagoda-api:latest .
+docker push usuario/pagoda-api:latest
+\end{lstlisting}
+
+Después se actualiza el servicio en Render o la plataforma usada.
+
+\section{Panel Admin en GitHub Pages}
+
+Flujo típico:
+
+\begin{lstlisting}
+cd admin-pagoda
+npm install
+npm run build
+npx angular-cli-ghpages --dir=dist/admin-pagoda/browser
+\end{lstlisting}
+
+La carpeta exacta de salida puede variar según \code{angular.json}. Antes de desplegar, verificar que \code{api.config.ts} apunte a la API pública correcta.
+
+\section{APK Mesero}
+
+Flujo típico:
+
+\begin{lstlisting}
+cd mesero-pagoda
+flutter pub get
+flutter analyze
+flutter build apk --release --dart-define=PAGODA_API_URL=https://url-api-produccion
+\end{lstlisting}
+
+Si la app no usa todavía \code{--dart-define}, se debe actualizar \code{api_config.dart} para leerlo y evitar recompilar código manualmente por ambiente.
+
+\section{Scripts SQL de Mantenimiento}
+
+En la raíz existen scripts \code{fix_*.sql}. Son correctivos puntuales y deben ejecutarse con cuidado:
+
+\begin{lstlisting}
+export DATABASE_URL='postgres://usuario:password@host:puerto/pagoda?sslmode=require'
+psql "$DATABASE_URL" -f fix_superusuario_hash.sql
+psql "$DATABASE_URL" -f fix_borrar_admins.sql
+psql "$DATABASE_URL" -f fix_preview_propinas_73_74_75.sql
+psql "$DATABASE_URL" -f fix_aplicar_propinas_73_74_75.sql
+\end{lstlisting}
+
+Regla operativa: primero se despliega código compatible cuando el SQL depende de columnas nuevas; después se ejecuta el SQL. Si el SQL solo borra datos de prueba, puede ejecutarse antes de crear usuarios nuevos.
+
+\chapter{Guía de Desarrollo}
+
+\section{Cómo Levantar el Proyecto}
+
+\subsection{Backend}
+
+\begin{lstlisting}
+cd pagoda-api
+./mvnw spring-boot:run
+\end{lstlisting}
+
+Verificar salud:
+
+\begin{lstlisting}
+curl http://localhost:8080/api/health
+\end{lstlisting}
+
+\subsection{Admin}
+
+\begin{lstlisting}
+cd admin-pagoda
+npm install
+npm start
+\end{lstlisting}
+
+Abrir:
+
+\begin{lstlisting}
+http://localhost:4200
+\end{lstlisting}
+
+\subsection{Mesero}
+
+\begin{lstlisting}
+cd mesero-pagoda
+flutter pub get
+flutter run
+\end{lstlisting}
+
+\section{Comandos de Verificación}
+
+\begin{lstlisting}
+cd pagoda-api
+./mvnw test
+
+cd ../admin-pagoda
+npm run build
+
+cd ../mesero-pagoda
+flutter analyze
+\end{lstlisting}
+
+\section{Mapa de Cambios Frecuentes}
+
+\begin{longtable}{p{0.35\textwidth}p{0.55\textwidth}}
+\caption{Dónde modificar cada cosa}\\
+\toprule
+\textbf{Necesidad} & \textbf{Archivos o módulos}\\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Necesidad} & \textbf{Archivos o módulos}\\
+\midrule
+\endhead
+Cambiar cálculo de propina & \code{PagoService}, \code{ResumenPropinaDiarioService}, \code{propinas.ts}, \code{order_provider.dart}.\\
+Cambiar comisión bancaria & \code{ParametrosLocal}, \code{ParametrosLocalService}, \code{configuracion.ts}, \code{PagoService}.\\
+Cambiar flujo de cierre de jornada & \code{JornadaService}, \code{ventas.ts}, \code{order_provider.dart}, \code{table_map_screen.dart}.\\
+Agregar reporte nuevo & Nuevo método en servicio de reportes, controlador, endpoint en \code{api-client.service.ts} y componente Angular.\\
+Agregar rol nuevo & \code{data.sql}, \code{Rol}, \code{RolService}, guards de Angular y lógica de login si aplica.\\
+Modificar menú & \code{ProductoService}, \code{ProductoController}, \code{menu-management.ts}, \code{menu_screen.dart}.\\
+Modificar ticket PDF & \code{order_summary_screen.dart}, modelos relacionados y parámetros de ticket.\\
+Cambiar tema app mesero & \code{app_theme.dart}, pantallas Flutter.\\
+Cambiar tema admin & CSS global, CSS de páginas y componentes compartidos.\\
+Cambiar URL de API admin & \code{admin-pagoda/src/app/app/core/api/api.config.ts}.\\
+Cambiar URL de API mesero & \code{mesero-pagoda/lib/core/api_config.dart}.\\
+Cambiar seguridad de superusuario & \code{SuperuserAuthService}, \code{AdminController}, \code{auth.service.ts}.\\
+\bottomrule
+\end{longtable}
+
+\section{Convenciones de Código}
+
+\begin{itemize}[leftmargin=*]
+  \item Backend: mantener controladores delgados y reglas en servicios.
+  \item Backend: usar excepciones de dominio en vez de errores genéricos.
+  \item Backend: no hacer cálculos monetarios con \code{double}; usar \code{BigDecimal}.
+  \item Admin: centralizar HTTP en servicios, no duplicar URLs en componentes.
+  \item Admin: usar componentes/modales visuales del sistema, no \code{alert}, \code{confirm} o \code{prompt} nativos.
+  \item Mesero: mantener estado de pedidos en provider; las pantallas no deben duplicar lógica de negocio compleja.
+  \item Todos: evitar datos sensibles hardcodeados.
+\end{itemize}
+
+\section{Política de Comentarios en Código}
+
+No se recomienda comentar cada línea. Un proyecto profesional comenta la intención y las decisiones no obvias, no lo que el lenguaje ya expresa. La política recomendada es:
+
+\begin{itemize}[leftmargin=*]
+  \item Agregar comentario antes de reglas de negocio críticas.
+  \item Agregar comentario cuando exista una decisión temporal o workaround.
+  \item Agregar JavaDoc/TSDoc/DartDoc en métodos públicos complejos.
+  \item No comentar getters, setters, asignaciones obvias o HTML/CSS evidente.
+  \item Mantener esta documentación como guía principal para onboarding.
+\end{itemize}
+
+Ejemplo correcto en backend:
+
+\begin{lstlisting}
+// La propina puede modificarse despues del cierre mientras la mesa sigue en limpieza.
+// Se recalcula sobre pagos existentes para mantener consistencia con reportes.
+public List<Pago> actualizarPropinaVenta(Integer ventaId, BigDecimal propinaMonto) {
+  ...
+}
+\end{lstlisting}
+
+Ejemplo incorrecto:
+
+\begin{lstlisting}
+// Asigna el monto al pago.
+pago.setMonto(monto);
+\end{lstlisting}
+
+\chapter{Checklist de Pruebas Manuales}
+
+\section{Jornada}
+
+\begin{itemize}[leftmargin=*]
+  \item Abrir jornada desde admin.
+  \item Iniciar sesión en app mesero y confirmar que permite operar.
+  \item Cerrar jornada desde admin con PIN correcto.
+  \item Verificar que admin genera PDF y limpia modal de cierre.
+  \item Verificar que app mesero vuelve a login.
+  \item Volver a iniciar sesión y confirmar que no reaparecen mesas en LIMPIANDO de jornada cerrada.
+\end{itemize}
+
+\section{Ventas}
+
+\begin{itemize}[leftmargin=*]
+  \item Abrir mesa libre.
+  \item Agregar productos de distintas categorías.
+  \item Cerrar cuenta con efectivo.
+  \item Cerrar cuenta con tarjeta.
+  \item Cerrar cuenta con pagos mixtos.
+  \item Confirmar que Ventas admin se actualiza sin presionar Consultar repetidamente.
+\end{itemize}
+
+\section{Propinas}
+
+\begin{itemize}[leftmargin=*]
+  \item Registrar propina en efectivo y verificar bruto/neto iguales.
+  \item Registrar propina en tarjeta y verificar neto con comisión.
+  \item Ajustar propina en estado LIMPIANDO.
+  \item Confirmar que propina diaria y acumulada cambian.
+  \item Confirmar que detalle de tickets muestra folio, fecha, mesa, método, bruto y neto.
+\end{itemize}
+
+\section{Top 5}
+
+\begin{itemize}[leftmargin=*]
+  \item Cerrar pedidos con productos repetidos.
+  \item Verificar ranking de productos.
+  \item Seleccionar rango válido.
+  \item Seleccionar rango inválido y confirmar bloqueo con mensaje visual.
+  \item Confirmar que gráfica usa el mismo rango.
+\end{itemize}
+
+\section{Configuración}
+
+\begin{itemize}[leftmargin=*]
+  \item Cambiar fondo inicial de un día.
+  \item Cambiar comisión bancaria.
+  \item Guardar configuración.
+  \item Cambiar de sección y volver a Configuración.
+  \item Cerrar sesión y volver a entrar.
+  \item Confirmar que se muestran los valores reales guardados sin tocar toggles.
+\end{itemize}
+
+\section{Usuarios y Superusuario}
+
+\begin{itemize}[leftmargin=*]
+  \item Configurar superusuario desde cero.
+  \item Crear admin con superusuario.
+  \item Crear mesero con superusuario.
+  \item Inactivar usuario y verificar que desaparece de Activos.
+  \item Cambiar filtro a Inactivos y verificar que aparece.
+  \item Intentar acciones sensibles con contraseña incorrecta y verificar rechazo.
+\end{itemize}
+
+\chapter{Solución de Problemas}
+
+\section{El Admin no Actualiza Ventas Automáticamente}
+
+Revisar:
+
+\begin{itemize}[leftmargin=*]
+  \item Que \code{websocket.service.ts} conecte correctamente.
+  \item Que \code{ventas.ts} esté suscrito a \code{/topic/pedido}.
+  \item Que \code{VentaService.cerrar} publique evento CERRADO.
+  \item Que la venta esté asociada a la jornada consultada.
+\end{itemize}
+
+\section{Propinas no Cuadran}
+
+Revisar:
+
+\begin{itemize}[leftmargin=*]
+  \item \code{ventas.pagos.propina_monto}.
+  \item \code{ventas.pagos.propina_neto}.
+  \item \code{ventas.pagos.propina_metodo_pago_id} si existe en el esquema.
+  \item Que \code{PagoService.actualizarPropinaVenta} publique \code{/topic/propinas}.
+  \item Que \code{ResumenPropinaDiarioService} calcule desde pagos actualizados.
+\end{itemize}
+
+\section{Configuración Muestra Defaults Incorrectos}
+
+Revisar:
+
+\begin{itemize}[leftmargin=*]
+  \item Que \code{configuracion.ts} llame a \code{GET /api/operacion/parametros} al inicializar.
+  \item Que no se sobrescriba el formulario con defaults después de la respuesta.
+  \item Que \code{admin-settings.service.ts} no tenga estado viejo.
+  \item Que \code{ParametrosLocalService.guardar} persista todos los campos.
+\end{itemize}
+
+\section{La App Reabre Mesas en Limpieza Después de Cerrar Jornada}
+
+Revisar:
+
+\begin{itemize}[leftmargin=*]
+  \item Limpieza de estado local en \code{order_provider.dart}.
+  \item Manejo del evento \code{/topic/jornada}.
+  \item Consulta de ventas activas al iniciar sesión.
+  \item Que ventas cerradas no se traten como ventas activas.
+\end{itemize}
+
+\chapter{Conclusiones}
+
+\section{Resultado del Proyecto}
+
+\projectname{} integra en un solo sistema la operación diaria del restaurante y la supervisión administrativa. La solución cumple con una arquitectura separada por responsabilidades: la app móvil atiende el flujo del mesero, el panel web concentra las decisiones administrativas y el backend mantiene las reglas de negocio y la persistencia.
+
+\section{Valor Académico}
+
+El proyecto aplica conceptos de construcción de software y base de datos: diseño por capas, persistencia relacional, servicios REST, eventos en tiempo real, control de seguridad, separación de responsabilidades, validaciones de dominio, despliegue por ambientes y documentación técnica. Además, el sistema resuelve un problema real con datos monetarios, lo que obliga a cuidar consistencia, trazabilidad y confiabilidad.
+
+\section{Lecciones Técnicas}
+
+\begin{itemize}
+  \item Los cálculos de dinero deben centralizarse en backend para evitar diferencias entre pantallas.
+  \item Los reportes deben consultar datos persistidos y no depender solo del estado visual.
+  \item La seguridad no debe depender únicamente de esconder botones; la API debe validar acciones sensibles.
+  \item WebSocket mejora la experiencia, pero debe existir consulta REST como respaldo.
+  \item La documentación debe explicar intención y flujos, no duplicar línea por línea el código.
+\end{itemize}
+
+\chapter{Anexos Técnicos}
+
+\section{Comandos SQL Útiles}
+
+Verificar columna de superusuario:
+
+\begin{lstlisting}
+SELECT column_name
+FROM information_schema.columns
+WHERE table_schema = 'operacion'
+  AND table_name = 'parametros_local'
+  AND column_name = 'superusuario_password_hash';
+\end{lstlisting}
+
+Ver usuarios activos:
+
+\begin{lstlisting}
+SELECT u.id, u.nombre, r.nombre AS rol, u.activo
+FROM operacion.usuarios u
+JOIN catalogos.roles r ON r.id = u.rol_id
+ORDER BY u.id;
+\end{lstlisting}
+
+Ver propinas por venta:
+
+\begin{lstlisting}
+SELECT v.id AS venta_id,
+       v.fecha_cierre,
+       m.numero AS mesa,
+       p.monto,
+       p.monto_neto,
+       p.propina_monto,
+       p.propina_neto
+FROM ventas.ventas v
+JOIN operacion.mesas m ON m.id = v.mesa_id
+JOIN ventas.pagos p ON p.venta_id = v.id
+ORDER BY v.id DESC;
+\end{lstlisting}
+
+\section{Glosario}
+
+\begin{longtable}{p{0.25\textwidth}p{0.65\textwidth}}
+\caption{Glosario}\\
+\toprule
+\textbf{Término} & \textbf{Definición}\\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Término} & \textbf{Definición}\\
+\midrule
+\endhead
+Jornada & Día operativo controlado por apertura y cierre.\\
+Venta & Cuenta/pedido de una mesa.\\
+Ticket & Representación imprimible de una venta cerrada.\\
+Propina bruta & Monto total dejado por el cliente.\\
+Propina neta & Propina después de comisión bancaria si aplica.\\
+Fondo de caja & Monto inicial usado para iniciar jornada.\\
+Superusuario & Contraseña maestra hash para operaciones sensibles.\\
+Mesa en limpieza & Estado posterior al cobro que permite ajustar propina antes de liberar.\\
+Top 5 & Ranking de productos más vendidos en un periodo.\\
+\bottomrule
+\end{longtable}
+
+\section{Mejoras Futuras Recomendadas}
+
+\begin{itemize}[leftmargin=*]
+  \item Agregar pruebas automatizadas de servicios críticos: pagos, propinas, jornadas y configuración.
+  \item Agregar paginación real en detalle de propinas y ventas históricas.
+  \item Agregar auditoría de acciones sensibles: quién cambió menú, usuarios, configuración y propinas.
+  \item Parametrizar API URL de Flutter con \code{--dart-define}.
+  \item Agregar migraciones formales con Flyway o Liquibase para reemplazar scripts manuales.
+  \item Agregar roles/permisos más finos si el restaurante crece.
+  \item Conectar módulo de impresión con impresora térmica real.
+  \item Crear pipeline CI para compilar backend, admin y app antes de desplegar.
+\end{itemize}
+
+\chapter{Guía Rápida para Nuevo Desarrollador}
+
+\section{Primeros 30 Minutos}
+
+\begin{enumerate}[leftmargin=*]
+  \item Leer capítulos 1 a 4 de este documento.
+  \item Levantar backend y confirmar \code{/api/health}.
+  \item Levantar admin y entrar a \code{/ventas}.
+  \item Ejecutar app mesero en emulador o dispositivo.
+  \item Abrir una jornada y hacer una venta de prueba.
+  \item Cerrar venta con propina.
+  \item Revisar que Ventas, Top 5 y Propinas se actualicen.
+\end{enumerate}
+
+\section{Antes de Modificar Código}
+
+\begin{itemize}[leftmargin=*]
+  \item Identificar si el cambio afecta datos transaccionales.
+  \item Ubicar el servicio backend responsable.
+  \item Ubicar la página Angular o pantalla Flutter que consume ese dato.
+  \item Revisar si hay eventos WebSocket relacionados.
+  \item Definir prueba manual de inicio a fin antes de tocar código.
+\end{itemize}
+
+\section{Regla de Oro}
+
+Si el cambio toca dinero, propinas, pagos, cierres o configuración persistente, no se acepta solo porque se ve bien en pantalla. Debe comprobarse en base de datos, API y UI.
+
+\end{document}

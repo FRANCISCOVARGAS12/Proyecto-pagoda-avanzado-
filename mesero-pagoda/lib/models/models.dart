@@ -15,6 +15,7 @@ class BoardTable {
   TableStatus status;
   int guests;
   double tipAmount;
+  int? lastClosedVentaId;
   List<OrderItem> orders;
 
   BoardTable({
@@ -25,6 +26,7 @@ class BoardTable {
     this.status = TableStatus.libre,
     this.guests = 0,
     this.tipAmount = 0,
+    this.lastClosedVentaId,
     List<OrderItem>? orders,
   }) : orders = orders ?? [];
 

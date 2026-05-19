@@ -8,6 +8,7 @@ import com.pagoda.pagoda_api.exception.ErrorCode;
 import com.pagoda.pagoda_api.exception.PagodaException;
 import com.pagoda.pagoda_api.repository.catalogos.CategoriaRepository;
 import com.pagoda.pagoda_api.service.ProductoService;
+import com.pagoda.pagoda_api.service.SuperuserAuthService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -20,8 +21,11 @@ import java.util.List;
 @RequiredArgsConstructor
 public class ProductoController {
 
+    private static final String SUPERUSER_HEADER = "X-Superuser-Token";
+
     private final ProductoService productoService;
     private final CategoriaRepository categoriaRepository;
+    private final SuperuserAuthService superuserAuthService;
 
     @GetMapping
     public ResponseEntity<ApiResponse<List<Producto>>> obtenerTodos() {
@@ -43,7 +47,10 @@ public class ProductoController {
     }
 
     @PostMapping
-    public ResponseEntity<ApiResponse<Producto>> guardar(@Valid @RequestBody ProductoCreateRequest request) {
+    public ResponseEntity<ApiResponse<Producto>> guardar(
+            @Valid @RequestBody ProductoCreateRequest request,
+            @RequestHeader(value = SUPERUSER_HEADER, required = false) String superuserToken) {
+        superuserAuthService.validarToken(superuserToken);
         Categoria categoria = categoriaRepository.findById(request.getCategoriaId())
                 .orElseThrow(() -> new PagodaException(ErrorCode.CATEGORIA_NO_ENCONTRADA));
 
@@ -60,7 +67,11 @@ public class ProductoController {
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<ApiResponse<Producto>> actualizar(@PathVariable Integer id, @Valid @RequestBody ProductoCreateRequest request) {
+    public ResponseEntity<ApiResponse<Producto>> actualizar(
+            @PathVariable Integer id,
+            @Valid @RequestBody ProductoCreateRequest request,
+            @RequestHeader(value = SUPERUSER_HEADER, required = false) String superuserToken) {
+        superuserAuthService.validarToken(superuserToken);
         Categoria categoria = categoriaRepository.findById(request.getCategoriaId())
                 .orElseThrow(() -> new PagodaException(ErrorCode.CATEGORIA_NO_ENCONTRADA));
 
@@ -78,7 +89,10 @@ public class ProductoController {
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<ApiResponse<Void>> eliminar(@PathVariable Integer id) {
+    public ResponseEntity<ApiResponse<Void>> eliminar(
+            @PathVariable Integer id,
+            @RequestHeader(value = SUPERUSER_HEADER, required = false) String superuserToken) {
+        superuserAuthService.validarToken(superuserToken);
         productoService.eliminar(id);
         return ResponseEntity.ok(
                 ApiResponse.ok("Producto eliminado correctamente", null)

@@ -40,4 +40,13 @@ public class ResumenPlatillosDiarioController {
         List<Map<String, Object>> response = service.obtenerTop5Resumen(inicio, fin);
         return ResponseEntity.ok(ApiResponse.ok("Top 5 de platillos obtenido", response));
     }
+
+    @GetMapping("/flujo-ventas")
+    public ResponseEntity<ApiResponse<List<Map<String, Object>>>> flujoVentas(
+            @RequestParam("inicio") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate inicio,
+            @RequestParam("fin") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fin) {
+
+        List<Map<String, Object>> response = service.obtenerFlujoVentas(inicio, fin);
+        return ResponseEntity.ok(ApiResponse.ok("Flujo de ventas obtenido", response));
+    }
 }

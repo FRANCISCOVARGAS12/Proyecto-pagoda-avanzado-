@@ -53,6 +53,9 @@ public class SecurityConfig {
         http
                 .securityMatcher(
                         "/ws-pagoda/**",
+                        "/api/admin/superuser/status",
+                        "/api/admin/superuser/setup",
+                        "/api/admin/superuser/verify",
                         "/api/admin/login",
                         "/api/mesero/login",
                         "/api/auth/check-setup",

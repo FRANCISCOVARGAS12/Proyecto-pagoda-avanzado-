@@ -61,4 +61,14 @@ public class ResumenPropinaDiarioController {
         data.put("acumulado", acumulado);
         return ResponseEntity.ok(ApiResponse.ok("Propinas en el rango seleccionado", data));
     }
+
+    @GetMapping("/detalle")
+    public ResponseEntity<ApiResponse<List<Map<String, Object>>>> obtenerDetalle(
+            @RequestParam("inicio") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate inicio,
+            @RequestParam("fin") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fin) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                "Detalle de propinas obtenido",
+                service.getDetallePropinasEntreFechas(inicio, fin)
+        ));
+    }
 }

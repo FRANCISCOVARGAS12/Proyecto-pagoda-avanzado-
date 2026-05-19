@@ -11,7 +11,9 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -35,6 +37,20 @@ public class ResumenPropinaDiarioService {
     // ✅ Total de propinas en cualquier rango de fechas
     public BigDecimal getTotalPropinaEntreFechas(LocalDate inicio, LocalDate fin) {
         return pagoRepository.sumPropinasNetasByRango(inicio, fin);
+    }
+
+    public List<Map<String, Object>> getDetallePropinasEntreFechas(LocalDate inicio, LocalDate fin) {
+        return pagoRepository.findDetallePropinasByRango(inicio, fin).stream().map(row -> {
+            Map<String, Object> map = new LinkedHashMap<>();
+            map.put("folio", row[0]);
+            map.put("fecha", row[1] == null ? null : row[1].toString());
+            map.put("mesa", row[2]);
+            map.put("propinaEfectivo", row[3] instanceof BigDecimal ? row[3] : BigDecimal.ZERO);
+            map.put("propinaTarjetaBruto", row[4] instanceof BigDecimal ? row[4] : BigDecimal.ZERO);
+            map.put("propinaTarjetaNeto", row[5] instanceof BigDecimal ? row[5] : BigDecimal.ZERO);
+            map.put("totalNeto", row[6] instanceof BigDecimal ? row[6] : BigDecimal.ZERO);
+            return map;
+        }).toList();
     }
 
     // ✅ Total en el periodo actual de 15 días (deslizante)

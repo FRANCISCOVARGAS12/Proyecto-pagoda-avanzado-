@@ -1286,12 +1286,33 @@ class _TableMapScreenState extends State<TableMapScreen>
                           'Se guardará una propina de \$${sanitized.toStringAsFixed(2)} en ${table.name}.',
                       confirmLabel: 'CONFIRMAR',
                       onConfirm: () {
-                        context.read<OrderProvider>().updateTip(
+                        () async {
+                          final navigator = Navigator.of(context);
+                          final messenger = ScaffoldMessenger.of(context);
+                          final provider = context.read<OrderProvider>();
+                          try {
+                            await provider.updateClosedTicketTip(
                               table,
                               sanitized,
                             );
-                        Navigator.pop(context);
-                        Navigator.pop(context);
+                            if (!mounted) return;
+                            navigator.pop();
+                            navigator.pop();
+                          } catch (error) {
+                            if (!mounted) return;
+                            final message = _friendlyTipError(error);
+                            messenger.showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  message,
+                                  textAlign: TextAlign.center,
+                                ),
+                                backgroundColor: AppColors.ocupado,
+                                behavior: SnackBarBehavior.floating,
+                              ),
+                            );
+                          }
+                        }();
                       },
                     ),
                   );
@@ -1337,6 +1358,17 @@ class _TableMapScreenState extends State<TableMapScreen>
         ),
       ),
     );
+  }
+
+  String _friendlyTipError(Object error) {
+    final raw = error.toString().replaceFirst('Exception: ', '').trim();
+    if (raw.isEmpty ||
+        raw.contains('subtype') ||
+        raw.contains('FutureOr') ||
+        raw.contains('List<dynamic>')) {
+      return 'No se pudo actualizar la propina. Intenta de nuevo.';
+    }
+    return raw;
   }
 
   void _showToolsSheet(BuildContext context) {
@@ -1453,7 +1485,8 @@ class _TableMapScreenState extends State<TableMapScreen>
                         final ticket = tickets[index];
                         return _RecoveredTicketTile(
                           ticket: ticket,
-                          onTap: () => _printClosedTicket(provider, ticket),
+                          onTap: () =>
+                              _showTicketPreview(context, provider, ticket),
                         );
                       },
                     ),
@@ -1461,6 +1494,197 @@ class _TableMapScreenState extends State<TableMapScreen>
               ],
             );
           },
+        ),
+      ),
+    );
+  }
+
+  void _showTicketPreview(
+    BuildContext context,
+    OrderProvider provider,
+    ClosedTicket ticket,
+  ) {
+    final closedAt = ticket.closedAt;
+    final dateLabel = closedAt == null
+        ? 'Sin fecha'
+        : '${closedAt.day.toString().padLeft(2, '0')}/${closedAt.month.toString().padLeft(2, '0')}/${closedAt.year} ${closedAt.hour.toString().padLeft(2, '0')}:${closedAt.minute.toString().padLeft(2, '0')}';
+    final efectivo = ticket.payments
+        .where((payment) => payment.method == PaymentMethod.efectivo)
+        .fold(0.0, (sum, payment) => sum + payment.amount);
+    final tarjeta = ticket.payments
+        .where((payment) => payment.method == PaymentMethod.tarjeta)
+        .fold(0.0, (sum, payment) => sum + payment.amount);
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => Container(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.86,
+        ),
+        padding: const EdgeInsets.fromLTRB(24, 24, 24, 34),
+        decoration: const BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              margin: const EdgeInsets.only(bottom: 22),
+              decoration: BoxDecoration(
+                color: AppColors.surfaceElevated,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const Text(
+              'Vista previa del ticket',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w300,
+                color: AppColors.gold,
+                letterSpacing: 0.6,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Flexible(
+              child: SingleChildScrollView(
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    color: AppColors.background,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: AppColors.surfaceElevated),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const Text(
+                        'PAGODA',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: AppColors.gold,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w500,
+                          letterSpacing: 3,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      _TicketPreviewLine(
+                        left: ticket.tableName,
+                        right: dateLabel,
+                      ),
+                      _TicketPreviewLine(
+                        left: 'Folio #${ticket.folio}',
+                        right: ticket.waiterName,
+                      ),
+                      const Divider(color: AppColors.surfaceElevated),
+                      ...ticket.items.map(
+                        (item) => Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 5),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      item.name,
+                                      style: const TextStyle(
+                                        color: AppColors.textPrimary,
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w400,
+                                      ),
+                                    ),
+                                    if (item.diner != null)
+                                      Text(
+                                        'Comensal ${item.diner}',
+                                        style: const TextStyle(
+                                          color: AppColors.textMuted,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w300,
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                              Text(
+                                '\$${item.price.toStringAsFixed(2)}',
+                                style: const TextStyle(
+                                  color: AppColors.textPrimary,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const Divider(color: AppColors.surfaceElevated),
+                      _TicketPreviewLine(
+                        left: 'TOTAL',
+                        right: '\$${ticket.subtotal.toStringAsFixed(2)}',
+                        strong: true,
+                      ),
+                      if (efectivo > 0)
+                        _TicketPreviewLine(
+                          left: 'Efectivo',
+                          right: '\$${efectivo.toStringAsFixed(2)}',
+                        ),
+                      if (tarjeta > 0)
+                        _TicketPreviewLine(
+                          left: 'Tarjeta',
+                          right: '\$${tarjeta.toStringAsFixed(2)}',
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            GestureDetector(
+              onTap: () => _printClosedTicket(provider, ticket),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [AppColors.gold, AppColors.goldLight],
+                  ),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: const Text(
+                  'REIMPRIMIR TICKET',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: AppColors.background,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 1.5,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            GestureDetector(
+              onTap: () => Navigator.pop(context),
+              child: const Padding(
+                padding: EdgeInsets.symmetric(vertical: 8),
+                child: Text(
+                  'Cerrar',
+                  style: TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w300,
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -2280,6 +2504,46 @@ class _RecoveredTicketTile extends StatelessWidget {
       ),
     );
   }
+}
+
+class _TicketPreviewLine extends StatelessWidget {
+  final String left;
+  final String right;
+  final bool strong;
+
+  const _TicketPreviewLine({
+    required this.left,
+    required this.right,
+    this.strong = false,
+  });
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 3),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                left,
+                style: TextStyle(
+                  color:
+                      strong ? AppColors.textPrimary : AppColors.textSecondary,
+                  fontSize: strong ? 14 : 11,
+                  fontWeight: strong ? FontWeight.w600 : FontWeight.w300,
+                ),
+              ),
+            ),
+            Text(
+              right,
+              style: TextStyle(
+                color: strong ? AppColors.textPrimary : AppColors.textSecondary,
+                fontSize: strong ? 14 : 11,
+                fontWeight: strong ? FontWeight.w600 : FontWeight.w300,
+              ),
+            ),
+          ],
+        ),
+      );
 }
 
 class _SimpleConfirmDialog extends StatelessWidget {

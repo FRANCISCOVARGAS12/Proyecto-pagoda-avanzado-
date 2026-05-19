@@ -1,4 +1,5 @@
 import { Injectable, signal } from '@angular/core';
+import { ApiClientService } from '../api/api-client.service';
 
 export interface AdminUiSettings {
   defaultRoleName: string;
@@ -7,6 +8,15 @@ export interface AdminUiSettings {
   printSummaryOnClose: boolean;
   receiptHeader: string;
   receiptFooter: string;
+}
+
+interface ParametrosLocalApi {
+  rolPorDefecto?: string;
+  autoLogoutMinutos?: number;
+  impresoraTickets?: 'default' | 'thermal' | 'none' | string;
+  imprimirResumenCierre?: boolean;
+  encabezadoTicket?: string;
+  pieTicket?: string;
 }
 
 const SETTINGS_KEY = 'pagoda-admin-ui-settings';
@@ -25,6 +35,8 @@ export class AdminSettingsService {
   private readonly settingsSignal = signal<AdminUiSettings>(this.loadSettings());
   readonly settings = this.settingsSignal.asReadonly();
 
+  constructor(private readonly apiClient: ApiClientService) {}
+
   snapshot(): AdminUiSettings {
     return this.settingsSignal();
   }
@@ -33,6 +45,22 @@ export class AdminSettingsService {
     const next = this.normalizeSettings({ ...this.settingsSignal(), ...partial });
     this.settingsSignal.set(next);
     this.persistSettings(next);
+  }
+
+  async syncFromBackend(): Promise<void> {
+    try {
+      const params = await this.apiClient.get<ParametrosLocalApi>('/api/operacion/parametros');
+      this.updateSettings({
+        defaultRoleName: (params.rolPorDefecto ?? this.snapshot().defaultRoleName).toUpperCase(),
+        autoLogoutMinutes: Number(params.autoLogoutMinutos ?? this.snapshot().autoLogoutMinutes),
+        printerTickets: this.normalizePrinterOption(params.impresoraTickets ?? this.snapshot().printerTickets),
+        printSummaryOnClose: params.imprimirResumenCierre ?? this.snapshot().printSummaryOnClose,
+        receiptHeader: params.encabezadoTicket ?? this.snapshot().receiptHeader,
+        receiptFooter: params.pieTicket ?? this.snapshot().receiptFooter,
+      });
+    } catch {
+      // La app puede seguir usando la configuracion local si el backend no responde.
+    }
   }
 
   private loadSettings(): AdminUiSettings {
@@ -75,5 +103,9 @@ export class AdminSettingsService {
       receiptHeader: String(raw.receiptHeader ?? DEFAULT_SETTINGS.receiptHeader).trim() || DEFAULT_SETTINGS.receiptHeader,
       receiptFooter: String(raw.receiptFooter ?? DEFAULT_SETTINGS.receiptFooter).trim() || DEFAULT_SETTINGS.receiptFooter,
     };
+  }
+
+  private normalizePrinterOption(value: string): 'default' | 'thermal' | 'none' {
+    return value === 'thermal' || value === 'none' ? value : 'default';
   }
 }

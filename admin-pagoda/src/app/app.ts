@@ -1,4 +1,5 @@
 import { Component, effect, inject, OnDestroy } from '@angular/core';
+import { FormsModule } from '@angular/forms';
 import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { ApiClientService } from './app/core/api/api-client.service';
 import { AuthService } from './app/core/auth/auth.service';
@@ -71,7 +72,7 @@ interface OrderRow {
 
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet, RouterLink, RouterLinkActive, ToastContainer],
+  imports: [FormsModule, RouterOutlet, RouterLink, RouterLinkActive, ToastContainer],
   templateUrl: './app.html',
   styleUrl: './app.css'
 })
@@ -91,6 +92,10 @@ export class App implements OnDestroy {
   protected readonly isAuthenticated = this.authService.isAuthenticated;
   protected readonly displayName = this.authService.displayName;
   protected readonly jornadaAbierta = this.jornadaService.jornadaAbierta;
+  protected closeJornadaDialogVisible = false;
+  protected closeJornadaPinStep = false;
+  protected closeJornadaPin = '';
+  protected closeJornadaSaving = false;
 
   constructor() {
     this.isDarkMode = this.getInitialTheme();
@@ -124,6 +129,8 @@ export class App implements OnDestroy {
 
   private async initializeWebSocket(): Promise<void> {
     try {
+      await this.adminSettingsService.syncFromBackend();
+
       if (!this.webSocketService.isConnected()) {
         await this.webSocketService.connect();
       }
@@ -147,20 +154,76 @@ export class App implements OnDestroy {
     this.saveTheme(this.isDarkMode);
   }
 
-  protected async cerrarJornada(): Promise<void> {
+  protected cerrarJornada(): void {
     const jornadaAbierta = this.jornadaAbierta();
     if (!jornadaAbierta) {
       return;
     }
 
-    const result = await this.jornadaService.cerrarJornada();
-    if (result.ok) {
-      this.toastService.success(result.message);
-      await this.generateCloseSummaryPdf(jornadaAbierta);
+    this.closeJornadaDialogVisible = true;
+    this.closeJornadaPinStep = false;
+    this.closeJornadaPin = '';
+  }
+
+  protected continueCloseJornada(): void {
+    this.closeJornadaPinStep = true;
+  }
+
+  protected cancelCloseJornada(): void {
+    if (this.closeJornadaSaving) {
       return;
     }
 
-    this.toastService.error(result.message);
+    this.closeJornadaDialogVisible = false;
+    this.closeJornadaPinStep = false;
+    this.closeJornadaPin = '';
+  }
+
+  protected async confirmCloseJornada(): Promise<void> {
+    const jornadaAbierta = this.jornadaAbierta();
+    if (!jornadaAbierta || this.closeJornadaSaving) {
+      return;
+    }
+
+    const pin = this.closeJornadaPin.trim();
+    if (!pin) {
+      this.toastService.error('Introduce tu PIN para cerrar la jornada.');
+      return;
+    }
+
+    this.closeJornadaSaving = true;
+    try {
+      const pinResult = await this.authService.verifyCurrentPin(pin);
+      if (!pinResult.ok) {
+        this.toastService.error(pinResult.message);
+        return;
+      }
+
+      const result = await this.jornadaService.cerrarJornada();
+      if (result.ok) {
+        this.resetCloseJornadaDialog();
+        this.toastService.success(result.message);
+        window.setTimeout(() => {
+          void this.generateCloseSummaryPdf(jornadaAbierta);
+        }, 0);
+        return;
+      }
+
+      this.toastService.error(result.message);
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message ? error.message : 'No se pudo cerrar la jornada.';
+      this.toastService.error(message);
+    } finally {
+      this.closeJornadaSaving = false;
+    }
+  }
+
+  private resetCloseJornadaDialog(): void {
+    this.closeJornadaDialogVisible = false;
+    this.closeJornadaPinStep = false;
+    this.closeJornadaPin = '';
+    this.closeJornadaSaving = false;
   }
 
   protected logout(): void {

@@ -33,15 +33,15 @@ public class AdminAuthService {
 
     public LoginResponse loginConPin(String nombre, String pin) {
         Usuario usuario = usuarioRepository.findTopByNombreIgnoreCaseAndActivoTrueOrderByIdDesc(nombre)
-                .orElseThrow(() -> new PagodaException(ErrorCode.PIN_INCORRECTO));
+                .orElseThrow(() -> new PagodaException(ErrorCode.CREDENCIALES_INVALIDAS));
 
         if (!passwordEncoder.matches(pin, usuario.getPinHash())) {
-            throw new PagodaException(ErrorCode.PIN_INCORRECTO);
+            throw new PagodaException(ErrorCode.CREDENCIALES_INVALIDAS);
         }
 
         // Verificar que el usuario sea ADMIN
         if (usuario.getRol() == null || !"ADMIN".equalsIgnoreCase(usuario.getRol().getNombre())) {
-            throw new PagodaException(ErrorCode.TOKEN_INVALIDO);
+            throw new PagodaException(ErrorCode.CREDENCIALES_INVALIDAS);
         }
 
         return crearSesion(usuario);
@@ -98,6 +98,14 @@ public class AdminAuthService {
         }
 
         return usuario;
+    }
+
+    public void verificarPinAdmin(String token, String pin) {
+        Usuario usuario = obtenerAdminPorToken(token);
+        String normalizedPin = pin == null ? "" : pin.trim();
+        if (normalizedPin.isBlank() || !passwordEncoder.matches(normalizedPin, usuario.getPinHash())) {
+            throw new PagodaException(ErrorCode.PIN_INCORRECTO);
+        }
     }
 
     private record TokenSession(Integer userId, Instant expiresAt) {

@@ -28,4 +28,17 @@ public interface ItemVentaRepository extends JpaRepository<ItemVenta, Integer> {
     List<Object[]> findTop5ByRango(@Param("inicio") LocalDate inicio,
                                    @Param("fin") LocalDate fin,
                                    Pageable pageable);
+
+    @Query("""
+            SELECT i.venta.jornada.fecha,
+                   COUNT(DISTINCT i.venta.id),
+                   SUM(i.precioUnitario * i.cantidad)
+            FROM ItemVenta i
+            WHERE i.venta.jornada.fecha BETWEEN :inicio AND :fin
+              AND i.venta.fechaCierre IS NOT NULL
+            GROUP BY i.venta.jornada.fecha
+            ORDER BY i.venta.jornada.fecha
+            """)
+    List<Object[]> findFlujoVentasByRango(@Param("inicio") LocalDate inicio,
+                                          @Param("fin") LocalDate fin);
 }

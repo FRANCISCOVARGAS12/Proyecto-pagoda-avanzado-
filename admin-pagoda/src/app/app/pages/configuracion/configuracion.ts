@@ -1,6 +1,7 @@
-import { Component, OnInit } from '@angular/core';
+import { ChangeDetectorRef, Component, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ApiClientService } from '../../core/api/api-client.service';
+import { AuthService } from '../../core/auth/auth.service';
 import { AdminSettingsService } from '../../core/ui/admin-settings.service';
 import { ToastService } from '../../core/ui/toast.service';
 
@@ -159,15 +160,18 @@ export class Configuracion implements OnInit {
 
   constructor(
     private readonly apiClient: ApiClientService,
+    private readonly authService: AuthService,
     private readonly adminSettingsService: AdminSettingsService,
     private readonly toastService: ToastService,
+    private readonly cdr: ChangeDetectorRef,
   ) {}
 
   async ngOnInit(): Promise<void> {
     this.syncThemeOptionFromStorage();
     await this.loadConfig();
     this.syncUiOptionsFromSettings();
-    this.restoreDraftOptions();
+    this.clearDraftOptions();
+    this.cdr.detectChanges();
   }
 
   protected get sections(): string[] {
@@ -219,6 +223,7 @@ export class Configuracion implements OnInit {
         payload,
       );
       this.backendParams = saved;
+      this.applyBackendParamsToOptions(saved);
       this.persistUiSettingsFromOptions();
       this.clearDraftOptions();
       this.toastService.success(
@@ -249,17 +254,8 @@ export class Configuracion implements OnInit {
     try {
       const params = await this.apiClient.get<ParametrosLocalApi>('/api/operacion/parametros');
       this.backendParams = params;
-
-      this.setOptionValue('fondo-caja', Number(params.fondoLunes));
-      this.setOptionValue('comision-tarjeta', Number(params.comisionBancaria));
-      this.adminSettingsService.updateSettings({
-        defaultRoleName: (params.rolPorDefecto ?? this.adminSettingsService.snapshot().defaultRoleName).toUpperCase(),
-        autoLogoutMinutes: Number(params.autoLogoutMinutos ?? this.adminSettingsService.snapshot().autoLogoutMinutes),
-        printerTickets: this.normalizePrinterOption(params.impresoraTickets ?? this.adminSettingsService.snapshot().printerTickets),
-        printSummaryOnClose: params.imprimirResumenCierre ?? this.adminSettingsService.snapshot().printSummaryOnClose,
-        receiptHeader: params.encabezadoTicket ?? this.adminSettingsService.snapshot().receiptHeader,
-        receiptFooter: params.pieTicket ?? this.adminSettingsService.snapshot().receiptFooter,
-      });
+      this.applyBackendParamsToOptions(params);
+      this.cdr.detectChanges();
     } catch (error) {
       const message =
         error instanceof Error && error.message
@@ -267,6 +263,28 @@ export class Configuracion implements OnInit {
           : 'No se pudo cargar la configuración del backend.';
       this.toastService.error(message);
     }
+  }
+
+  private applyBackendParamsToOptions(params: ParametrosLocalApi): void {
+    const currentSettings = this.adminSettingsService.snapshot();
+    const nextSettings = {
+      defaultRoleName: (params.rolPorDefecto ?? currentSettings.defaultRoleName).toUpperCase(),
+      autoLogoutMinutes: Number(params.autoLogoutMinutos ?? currentSettings.autoLogoutMinutes),
+      printerTickets: this.normalizePrinterOption(params.impresoraTickets ?? currentSettings.printerTickets),
+      printSummaryOnClose: params.imprimirResumenCierre ?? currentSettings.printSummaryOnClose,
+      receiptHeader: params.encabezadoTicket ?? currentSettings.receiptHeader,
+      receiptFooter: params.pieTicket ?? currentSettings.receiptFooter,
+    };
+
+    this.setOptionValue('fondo-caja', Number(params.fondoLunes));
+    this.setOptionValue('comision-tarjeta', Number(params.comisionBancaria));
+    this.setOptionValue('rol-por-defecto', nextSettings.defaultRoleName);
+    this.setOptionValue('auto-logout', nextSettings.autoLogoutMinutes);
+    this.setOptionValue('printer-tickets', nextSettings.printerTickets);
+    this.setOptionValue('imprimir-resumen-cierre', nextSettings.printSummaryOnClose);
+    this.setOptionValue('receipt-header', nextSettings.receiptHeader);
+    this.setOptionValue('receipt-footer', nextSettings.receiptFooter);
+    this.adminSettingsService.updateSettings(nextSettings);
   }
 
   private setOptionValue(id: string, value: string | number | boolean): void {
@@ -453,7 +471,7 @@ export class Configuracion implements OnInit {
         return false;
       }
 
-      await this.apiClient.put<UsuarioApi, { nombre: string; rolId: number; pin: string; activo: boolean }>(
+      await this.apiClient.putWithHeaders<UsuarioApi, { nombre: string; rolId: number; pin: string; activo: boolean }>(
         `/api/operacion/usuarios/${userId}`,
         {
           nombre: usuario.nombre,
@@ -461,6 +479,7 @@ export class Configuracion implements OnInit {
           pin,
           activo: usuario.activo,
         },
+        this.authService.superuserHeaders(),
       );
 
       this.newPin = '';

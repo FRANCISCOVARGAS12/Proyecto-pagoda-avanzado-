@@ -9,14 +9,21 @@
         type="date"
         [(ngModel)]="startDate"
         [min]="minStartDate"
-        [max]="maxStartDate"
+        [max]="endDate || maxStartDate"
         (change)="onStartDateChange()"
         [disabled]="cargando"
       />
     </div>
     <div class="date-field">
       <label for="endDate">Fin del periodo</label>
-      <input id="endDate" type="date" [(ngModel)]="endDate" disabled />
+      <input
+        id="endDate"
+        type="date"
+        [(ngModel)]="endDate"
+        [min]="startDate || minStartDate"
+        [max]="maxStartDate"
+        disabled
+      />
     </div>
 
     <div class="actions-group">
@@ -58,6 +65,9 @@
   @if (infoMessage) {
     <p class="info-message error">{{ infoMessage }}</p>
   }
+  @if (isDateRangeInvalid()) {
+    <p class="info-message error">La fecha fin no puede ser menor que la fecha inicio.</p>
+  }
 
   <!-- Tarjetas -->
   <div class="tip-wrapper">
@@ -88,5 +98,81 @@
       <small>{{ rangeLabel() }}</small>
     </div>
 
+  </div>
+
+  <div class="tips-detail-card">
+    <div class="detail-head">
+      <div>
+        <p class="eyebrow">Detalle por ticket</p>
+        <h2>Propinas registradas</h2>
+        <small>{{ detalleScopeLabel() }}</small>
+      </div>
+      @if (cargandoDetalle) {
+        <span class="spinner-sm"></span>
+      } @else {
+        <span>{{ detalles.length }} ticket(s)</span>
+      }
+    </div>
+
+    <div class="detail-tabs" aria-label="Filtro de tickets de propina">
+      <button
+        type="button"
+        [class.active]="detalleScope === 'dia'"
+        (click)="setDetalleScope('dia')"
+      >
+        Tickets del día
+      </button>
+      <button
+        type="button"
+        [class.active]="detalleScope === 'periodo'"
+        (click)="setDetalleScope('periodo')"
+      >
+        Tickets acumulados
+      </button>
+    </div>
+
+    @if (detalles.length) {
+      <div class="tips-table-shell">
+        <table>
+          <thead>
+            <tr>
+              <th>Folio</th>
+              <th>Fecha</th>
+              <th>Mesa</th>
+              <th>Método</th>
+              <th class="right">Propina</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (detalle of detalles; track detalle.folio) {
+              <tr>
+                <td class="folio">#{{ detalle.folio }}</td>
+                <td>{{ formatFecha(detalle.fecha) }}</td>
+                <td>{{ mesaLabel(detalle.mesa) }}</td>
+                <td>
+                  <span class="method-badge" [class.card]="hasCardTip(detalle)" [class.cash]="hasCashTip(detalle)">
+                    {{ tipMethodLabel(detalle) }}
+                  </span>
+                </td>
+                <td class="right strong tip-amount-cell">
+                  @if (hasCashTip(detalle)) {
+                    <span>Efectivo {{ fmt(detalle.propinaEfectivo) }}</span>
+                  }
+                  @if (hasCardTip(detalle)) {
+                    <span>Tarjeta bruto {{ fmt(detalle.propinaTarjetaBruto) }}</span>
+                    <small>Tarjeta neto {{ fmt(detalle.propinaTarjetaNeto) }}</small>
+                  }
+                  @if (hasCashTip(detalle) && hasCardTip(detalle)) {
+                    <small>Total neto {{ fmt(detalle.totalNeto) }}</small>
+                  }
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    } @else if (!cargandoDetalle) {
+      <p class="empty-detail">Sin propinas registradas en este periodo.</p>
+    }
   </div>
 </section>

@@ -31,4 +31,61 @@
   <router-outlet />
 }
 
+@if (closeJornadaDialogVisible) {
+  <div class="modal-backdrop" (click)="cancelCloseJornada()">
+    <section class="modal-card" aria-modal="true" role="dialog" (click)="$event.stopPropagation()">
+      <div class="modal-icon" aria-hidden="true">
+        @if (closeJornadaPinStep) {
+          #
+        } @else {
+          !
+        }
+      </div>
+
+      @if (!closeJornadaPinStep) {
+        <p class="modal-eyebrow">Cierre de jornada</p>
+        <h2>¿Está seguro de cerrar la jornada de hoy?</h2>
+        <p class="modal-copy">
+          Al continuar se validará tu PIN y después se ejecutará el cierre con el flujo de impresión configurado.
+        </p>
+
+        <div class="modal-actions">
+          <button type="button" class="secondary-action" (click)="cancelCloseJornada()">Cancelar</button>
+          <button type="button" class="primary-action" (click)="continueCloseJornada()">Sí, continuar</button>
+        </div>
+      } @else {
+        <p class="modal-eyebrow">Validación requerida</p>
+        <h2>Introduce tu PIN</h2>
+        <p class="modal-copy">
+          Para cerrar la jornada debe introducir su PIN de administrador.
+        </p>
+
+        <form class="modal-form" (ngSubmit)="confirmCloseJornada()">
+          <label for="close-jornada-pin">PIN</label>
+          <input
+            id="close-jornada-pin"
+            type="password"
+            name="closeJornadaPin"
+            [(ngModel)]="closeJornadaPin"
+            maxlength="6"
+            inputmode="numeric"
+            autocomplete="current-password"
+            [disabled]="closeJornadaSaving"
+            placeholder="6 dígitos"
+          />
+
+          <div class="modal-actions">
+            <button type="button" class="secondary-action" [disabled]="closeJornadaSaving" (click)="cancelCloseJornada()">
+              Cancelar
+            </button>
+            <button type="submit" class="primary-action" [disabled]="closeJornadaSaving">
+              {{ closeJornadaSaving ? 'Cerrando...' : 'Cerrar jornada' }}
+            </button>
+          </div>
+        </form>
+      }
+    </section>
+  </div>
+}
+
 <app-toast-container />

@@ -1,4 +1,4 @@
-import { Component, inject, signal, effect } from '@angular/core';
+import { Component, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { AuthService, LoginResponse } from '../../core/auth/auth.service';
@@ -19,6 +19,10 @@ export class Login {
 
   protected name = '';
   protected pin = '';
+  protected superPassword = '';
+  protected superPasswordConfirm = '';
+  protected superuserVerified = signal(false);
+  protected superuserConfigured = signal(true);
   protected needsSetup = signal(false);
   protected isLoading = signal(true);
   protected isSubmitting = signal(false);
@@ -26,8 +30,23 @@ export class Login {
   constructor() {
     if (this.authService.isAuthenticated()) {
       void this.router.navigate(['/ventas']);
+      return;
     }
-    this.checkSetup();
+    void this.initializeSuperuserGate();
+  }
+
+  private async initializeSuperuserGate(): Promise<void> {
+    if (this.authService.hasSuperuserSession()) {
+      this.superuserVerified.set(true);
+      await this.checkSetup();
+      return;
+    }
+
+    try {
+      this.superuserConfigured.set(await this.authService.isSuperuserConfigured());
+    } finally {
+      this.isLoading.set(false);
+    }
   }
 
   private async checkSetup(): Promise<void> {
@@ -44,6 +63,11 @@ export class Login {
 
   protected async submit(): Promise<void> {
     if (this.isSubmitting()) return;
+
+    if (!this.superuserVerified()) {
+      await this.submitSuperuser();
+      return;
+    }
     
     if (this.needsSetup()) {
       // Register first admin
@@ -58,10 +82,14 @@ export class Login {
 
       this.isSubmitting.set(true);
       try {
-        const login = await this.apiClient.post<LoginResponse, { nombre: string; pin: string }>('/api/auth/register-first-admin', {
-          nombre: this.name.trim(),
-          pin: this.pin.trim(),
-        });
+        const login = await this.apiClient.postWithHeaders<LoginResponse, { nombre: string; pin: string }>(
+          '/api/auth/register-first-admin',
+          {
+            nombre: this.name.trim(),
+            pin: this.pin.trim(),
+          },
+          this.authService.superuserHeaders(),
+        );
         this.authService.setSession(login);
         this.toastService.success('Administrador registrado. Iniciando sesión...');
         this.pin = '';
@@ -92,6 +120,35 @@ export class Login {
       this.pin = '';
       this.toastService.success('Sesion iniciada correctamente.');
       void this.router.navigate(['/ventas']);
+    }
+  }
+
+  protected async submitSuperuser(): Promise<void> {
+    if (this.isSubmitting()) return;
+
+    if (!this.superuserConfigured() && this.superPassword !== this.superPasswordConfirm) {
+      this.toastService.error('La confirmación de la contraseña no coincide.');
+      return;
+    }
+
+    this.isSubmitting.set(true);
+    try {
+      const result = this.superuserConfigured()
+        ? await this.authService.verifySuperuser(this.superPassword)
+        : await this.authService.setupSuperuser(this.superPassword);
+      if (!result.ok) {
+        this.toastService.error(result.message);
+        return;
+      }
+
+      this.superPassword = '';
+      this.superPasswordConfirm = '';
+      this.superuserConfigured.set(true);
+      this.superuserVerified.set(true);
+      this.toastService.success(result.message);
+      await this.checkSetup();
+    } finally {
+      this.isSubmitting.set(false);
     }
   }
 }

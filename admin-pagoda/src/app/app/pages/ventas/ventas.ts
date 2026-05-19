@@ -1781,7 +1781,7 @@ export class Ventas implements OnInit, OnDestroy {
   }
 
   private scheduleRealtimeRefresh(): void {
-    if (this.filtrosPendientes || !this.followActiveJornada || !this.hasManualConsulta) {
+    if (this.filtrosPendientes || !this.hasManualConsulta || !this.hasValidAppliedScopeSelection()) {
       return;
     }
 
@@ -1872,12 +1872,9 @@ export class Ventas implements OnInit, OnDestroy {
   }
 
   private shouldRealtimeRefreshForPedido(jornadaId: number): boolean {
-    if (!this.hasManualConsulta || this.filtrosPendientes || !this.followActiveJornada || this.appliedUseDateRange) {
+    if (!this.hasManualConsulta || this.filtrosPendientes || !this.hasValidAppliedScopeSelection()) {
       return false;
     }
-    if (this.jornadaAbiertaId === null || this.appliedJornadaId === null || this.appliedJornadaId === 'all') {
-      return false;
-    }
-    return this.appliedJornadaId === this.jornadaAbiertaId && jornadaId === this.jornadaAbiertaId;
+    return this.isPedidoInAppliedScope(jornadaId);
   }
 }

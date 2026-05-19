@@ -11,6 +11,8 @@ public interface UsuarioRepository extends JpaRepository<Usuario, Integer> {
     Optional<Usuario> findByNombre(String nombre);
     Optional<Usuario> findByNombreAndActivoTrue(String nombre);
     Optional<Usuario> findTopByNombreIgnoreCaseAndActivoTrueOrderByIdDesc(String nombre);
+    Optional<Usuario> findTopByNombreIgnoreCaseOrderByIdDesc(String nombre);
     List<Usuario> findByRolIdAndActivoTrueOrderByIdDesc(Integer rolId);
+    List<Usuario> findByActivoTrue();
     boolean existsByNombre(String nombre);
 }

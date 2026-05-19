@@ -11,32 +11,72 @@
     </button>
   </div>
 
+  <div class="filter-tabs" aria-label="Filtro de usuarios">
+    <button
+      type="button"
+      [class.active]="userFilter === 'activos'"
+      (click)="setUserFilter('activos')"
+    >
+      Activos
+      <span>{{ activeCount() }}</span>
+    </button>
+    <button
+      type="button"
+      [class.active]="userFilter === 'inactivos'"
+      (click)="setUserFilter('inactivos')"
+    >
+      Inactivos
+      <span>{{ inactiveCount() }}</span>
+    </button>
+  </div>
+
   <div class="table-shell">
     <table>
       <thead>
         <tr>
           <th>Nombre</th>
           <th>Rol</th>
+          <th>Estado</th>
           <th class="actions-col">Acciones</th>
         </tr>
       </thead>
       <tbody>
-        @for (user of users; track user.id) {
+        @for (user of filteredUsers; track user.id) {
           <tr>
             <td>{{ user.nombre }}</td>
             <td>{{ user.rol }}</td>
+            <td>
+              <span class="status-badge" [class.inactive]="!user.activo">
+                {{ user.activo ? 'Activo' : 'Inactivo' }}
+              </span>
+            </td>
             <td class="actions-col">
-              <button type="button" class="action-btn" (click)="openEditDialog(user.id)">
-                ✎ Editar
-              </button>
-              <button
-                type="button"
-                class="action-btn danger"
-                [disabled]="!user.activo"
-                (click)="deactivateUser(user.id)"
-              >
-                Eliminar
-              </button>
+              @if (user.activo) {
+                <button type="button" class="action-btn" (click)="openEditDialog(user.id)">
+                  ✎ Editar
+                </button>
+                <button
+                  type="button"
+                  class="action-btn danger"
+                  [disabled]="!canDeactivate(user)"
+                  [title]="deactivateDisabledReason(user)"
+                  (click)="deactivateUser(user.id)"
+                >
+                  Desactivar
+                </button>
+              } @else {
+                <button type="button" class="action-btn success" (click)="reactivateUser(user.id)">
+                  Reactivar
+                </button>
+              }
+            </td>
+          </tr>
+        }
+
+        @if (!filteredUsers.length) {
+          <tr>
+            <td colspan="4" class="empty-state">
+              Sin usuarios {{ userFilter === 'activos' ? 'activos' : 'inactivos' }}.
             </td>
           </tr>
         }
@@ -45,11 +85,49 @@
   </div>
 </section>
 
+@if (authDialogVisible) {
+  <div class="dialog-backdrop" (click)="!isAuthorizing() && closeAuthDialog()">
+    <div class="dialog-card protected-dialog" role="dialog" aria-modal="true" (click)="$event.stopPropagation()">
+      <div class="dialog-head">
+        <div>
+          <p class="dialog-eyebrow">Superusuario</p>
+          <h2>{{ authDialogTitle() }}</h2>
+        </div>
+        <button type="button" class="close-btn" [disabled]="isAuthorizing()" (click)="closeAuthDialog()">✕</button>
+      </div>
+
+      <p class="dialog-copy">{{ authDialogBody() }}</p>
+
+      <form class="dialog-form" (ngSubmit)="confirmUserAuthorization()">
+        <label for="user-super-password">Contraseña de superusuario</label>
+        <input
+          id="user-super-password"
+          type="password"
+          [(ngModel)]="authPassword"
+          name="authPassword"
+          autocomplete="current-password"
+          placeholder="Introduce la contraseña"
+          [disabled]="isAuthorizing()"
+        />
+
+        <div class="dialog-actions">
+          <button type="button" class="secondary-btn" [disabled]="isAuthorizing()" (click)="closeAuthDialog()">
+            Cancelar
+          </button>
+          <button type="submit" class="primary-btn" [disabled]="isAuthorizing()">
+            {{ isAuthorizing() ? 'Verificando...' : 'Verificar y continuar' }}
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+}
+
 @if (showDialog) {
-  <div class="dialog-backdrop" (click)="!isSaving && closeDialog()">
+  <div class="dialog-backdrop" (click)="!isSaving() && closeDialog()">
     <div class="dialog-card" (click)="$event.stopPropagation()">
       <div class="dialog-head">
-        <h2>{{ isEditing() ? 'Editar usuario' : 'Agregar nuevo usuario' }}</h2>
+        <h2>{{ isReactivating() ? 'Reactivar usuario' : (isEditing() ? 'Editar usuario' : 'Agregar nuevo usuario') }}</h2>
         <button type="button" class="close-btn" [disabled]="isSaving()" (click)="closeDialog()">✕</button>
       </div>
 
@@ -64,13 +142,54 @@
           }
         </select>
 
-        <label for="pin">{{ isEditing() ? 'Nuevo PIN (opcional, 6 dígitos)' : 'PIN (6 dígitos)' }}</label>
-        <input id="pin" type="password" maxlength="6" minlength="6" pattern="[0-9]{6}" [(ngModel)]="form.pin" name="pin" placeholder="Ej: 123456" inputmode="numeric" [required]="!isEditing()" [disabled]="isSaving()" />
+        <label for="pin">{{ isReactivating() ? 'Nuevo PIN (6 dígitos)' : (isEditing() ? 'Nuevo PIN (opcional, 6 dígitos)' : 'PIN (6 dígitos)') }}</label>
+        <input id="pin" type="password" maxlength="6" minlength="6" pattern="[0-9]{6}" [(ngModel)]="form.pin" name="pin" placeholder="Ej: 123456" inputmode="numeric" [required]="!isEditing() || isReactivating()" [disabled]="isSaving()" />
 
         <div class="dialog-actions">
           <button type="button" class="secondary-btn" [disabled]="isSaving()" (click)="closeDialog()">Cancelar</button>
           <button type="submit" class="primary-btn" [disabled]="isSaving()">
-            {{ isSaving() ? 'Guardando...' : (isEditing() ? 'Guardar cambios' : 'Guardar usuario') }}
+            {{ isSaving() ? 'Guardando...' : (isReactivating() ? 'Reactivar usuario' : (isEditing() ? 'Guardar cambios' : 'Guardar usuario')) }}
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+}
+
+@if (deleteDialogVisible && deleteTarget) {
+  <div class="dialog-backdrop" (click)="!isDeleting() && closeDeleteDialog()">
+    <div class="dialog-card danger-dialog" role="dialog" aria-modal="true" (click)="$event.stopPropagation()">
+      <div class="dialog-head">
+        <div>
+          <p class="dialog-eyebrow">Acción protegida</p>
+          <h2>Desactivar usuario</h2>
+        </div>
+        <button type="button" class="close-btn" [disabled]="isDeleting()" (click)="closeDeleteDialog()">✕</button>
+      </div>
+
+      <p class="dialog-copy">
+        Para desactivar a <strong>{{ deleteTarget!.nombre }}</strong> se necesita la contraseña de superusuario.
+        Esta acción desactiva su acceso al panel o a la app.
+      </p>
+
+      <form class="dialog-form" (ngSubmit)="confirmDeleteUser()">
+        <label for="delete-super-password">Contraseña de superusuario</label>
+        <input
+          id="delete-super-password"
+          type="password"
+          [(ngModel)]="deleteSuperPassword"
+          name="deleteSuperPassword"
+          autocomplete="current-password"
+          placeholder="Introduce la contraseña"
+          [disabled]="isDeleting()"
+        />
+
+        <div class="dialog-actions">
+          <button type="button" class="secondary-btn" [disabled]="isDeleting()" (click)="closeDeleteDialog()">
+            Cancelar
+          </button>
+          <button type="submit" class="primary-btn danger-primary" [disabled]="isDeleting()">
+            {{ isDeleting() ? 'Desactivando...' : 'Desactivar usuario' }}
           </button>
         </div>
       </form>

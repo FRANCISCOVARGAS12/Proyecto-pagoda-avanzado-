@@ -1286,7 +1286,7 @@ class _PaymentSheetState extends State<_PaymentSheet> {
                   cashPart: cash,
                   cardPart: card,
                 );
-                order.clearOrder();
+                order.clearOrder(closedVentaId: ventaId);
                 if (context.mounted) Navigator.pop(context);
               } catch (e) {
                 if (context.mounted) _showError(context, e);
@@ -2028,17 +2028,19 @@ class _PaymentSheetState extends State<_PaymentSheet> {
                               setState(() => _isClosingSale = true);
                               try {
                                 final ventaId = _activeVentaId;
+                                final int closedVentaId;
                                 if (ventaId == null) {
-                                  await order.registrarVenta(
+                                  closedVentaId = await order.registrarVenta(
                                     mode: ChargeMode.equitativo,
                                     payments: _buildEquitativoPayments(order),
                                     totalCuenta: order.grandTotal,
                                   );
                                 } else {
                                   await order.cerrarVentaRegistrada(ventaId);
+                                  closedVentaId = ventaId;
                                 }
                                 _activeVentaId = null;
-                                order.clearOrder();
+                                order.clearOrder(closedVentaId: closedVentaId);
                                 if (ctx.mounted) Navigator.pop(ctx);
                               } catch (e) {
                                 if (ctx.mounted) _showError(ctx, e);
@@ -2129,17 +2131,19 @@ class _PaymentSheetState extends State<_PaymentSheet> {
                               setState(() => _isClosingSale = true);
                               try {
                                 final ventaId = _activeVentaId;
+                                final int closedVentaId;
                                 if (ventaId == null) {
-                                  await order.registrarVenta(
+                                  closedVentaId = await order.registrarVenta(
                                     mode: ChargeMode.porPersona,
                                     payments: _buildIndividualPayments(order),
                                     totalCuenta: order.grandTotal,
                                   );
                                 } else {
                                   await order.cerrarVentaRegistrada(ventaId);
+                                  closedVentaId = ventaId;
                                 }
                                 _activeVentaId = null;
-                                order.clearOrder();
+                                order.clearOrder(closedVentaId: closedVentaId);
                                 if (context.mounted) Navigator.pop(context);
                               } catch (e) {
                                 if (context.mounted) _showError(context, e);

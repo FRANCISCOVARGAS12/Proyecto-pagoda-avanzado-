@@ -22,6 +22,7 @@ class OrderProvider extends ChangeNotifier {
   bool _isLoading = false;
   Timer? _jornadaMonitorTimer;
   String? _logoutReason;
+  int? _activeJornadaId;
 
   double _cardCommissionPercent = 3.5;
   String _receiptHeader = 'Restaurante Asiático';
@@ -83,12 +84,14 @@ class OrderProvider extends ChangeNotifier {
     }
   }
 
-  void logout({String? reason}) {
+  void logout({String? reason, bool clearPersistedTables = false}) {
+    final stateKey = _tablesStateKey;
     _stopJornadaMonitor();
     _logoutReason = reason;
     _token = null;
     _usuarioId = null;
     _usuarioNombre = null;
+    _activeJornadaId = null;
     _currentTable = null;
     _menuItems.clear();
     _menuCategories.clear();
@@ -96,6 +99,9 @@ class OrderProvider extends ChangeNotifier {
     _metodoPagoIds.clear();
     _tipoCobroIds.clear();
     _estadoItemEnviadoId = null;
+    if (clearPersistedTables && stateKey != null) {
+      unawaited(_removeTablesState(stateKey));
+    }
     notifyListeners();
   }
 
@@ -106,7 +112,14 @@ class OrderProvider extends ChangeNotifier {
   }
 
   Future<void> refreshInitialData() async {
-    await _restoreTablesState();
+    _activeJornadaId = await _fetchActiveJornadaId();
+    if (_activeJornadaId == null) {
+      await _clearPersistedTablesForCurrentUser();
+      _tables = _defaultTables();
+      _currentTable = null;
+    } else {
+      await _restoreTablesState();
+    }
     await Future.wait([
       refreshCatalogCaches(),
       refreshTables(),
@@ -207,6 +220,7 @@ class OrderProvider extends ChangeNotifier {
           status: keepLocalState ? prev.status : serverStatus,
           guests: prev?.guests ?? 0,
           tipAmount: prev?.tipAmount ?? 0,
+          lastClosedVentaId: prev?.lastClosedVentaId,
           orders: prev?.orders ?? [],
         ),
       );
@@ -542,6 +556,7 @@ class OrderProvider extends ChangeNotifier {
   void openTable(BoardTable table, int guests) {
     table.guests = guests;
     table.tipAmount = 0;
+    table.lastClosedVentaId = null;
     table.status = TableStatus.ocupado;
     _currentTable = table;
     notifyListeners();
@@ -578,6 +593,7 @@ class OrderProvider extends ChangeNotifier {
     table.status = TableStatus.libre;
     table.guests = 0;
     table.tipAmount = 0;
+    table.lastClosedVentaId = null;
     table.orders.clear();
     if (_currentTable?.backendId == table.backendId) {
       _currentTable = null;
@@ -592,10 +608,37 @@ class OrderProvider extends ChangeNotifier {
     _queuePersistTablesState();
   }
 
-  void clearOrder() {
+  Future<void> updateClosedTicketTip(BoardTable table, double tipAmount) async {
+    final ventaId = table.lastClosedVentaId;
+    if (table.status != TableStatus.limpiando || ventaId == null) {
+      updateTip(table, tipAmount);
+      return;
+    }
+
+    _ensureAuthenticated();
+    final previous = table.tipAmount;
+    final sanitized = tipAmount < 0 ? 0.0 : _round2(tipAmount);
+    table.tipAmount = sanitized;
+    notifyListeners();
+    _queuePersistTablesState();
+
+    try {
+      await _putApiData(ApiConfig.actualizarPropinaVenta(ventaId), {
+        'propinaMonto': sanitized,
+      });
+    } catch (_) {
+      table.tipAmount = previous;
+      notifyListeners();
+      _queuePersistTablesState();
+      rethrow;
+    }
+  }
+
+  void clearOrder({int? closedVentaId}) {
     if (_currentTable != null) {
       _currentTable!.orders.clear();
       _currentTable!.guests = 0;
+      _currentTable!.lastClosedVentaId = closedVentaId;
       _currentTable!.status = TableStatus.limpiando;
       _currentTable = null;
       notifyListeners();
@@ -637,7 +680,13 @@ class OrderProvider extends ChangeNotifier {
       }
       final decoded = jsonDecode(response.body);
       if (decoded is! Map<String, dynamic>) return;
-      if (decoded['success'] == true) return;
+      if (decoded['success'] == true) {
+        final data = decoded['data'];
+        if (data is Map<String, dynamic>) {
+          _activeJornadaId = (data['id'] as num?)?.toInt();
+        }
+        return;
+      }
 
       final code = decoded['code'];
       final message = decoded['message']?.toString().toLowerCase() ?? '';
@@ -651,7 +700,7 @@ class OrderProvider extends ChangeNotifier {
 
   void _forzarLogoutPorJornadaCerrada() {
     if (!isAuthenticated) return;
-    logout(reason: 'jornada_cerrada');
+    logout(reason: 'jornada_cerrada', clearPersistedTables: true);
   }
 
   void _ensureAuthenticated() {
@@ -687,7 +736,7 @@ class OrderProvider extends ChangeNotifier {
     return _unwrapResponse(response);
   }
 
-  Future<Map<String, dynamic>> _putApiData(
+  Future<dynamic> _putApiData(
     String endpoint,
     Object payload,
   ) async {
@@ -742,6 +791,18 @@ class OrderProvider extends ChangeNotifier {
     return '$_tablesStateKeyPrefix$userId';
   }
 
+  Future<int?> _fetchActiveJornadaId() async {
+    try {
+      final jornada = await _getApiData(ApiConfig.jornadaEstado);
+      if (jornada is Map<String, dynamic>) {
+        return (jornada['id'] as num?)?.toInt();
+      }
+    } catch (_) {
+      return null;
+    }
+    return null;
+  }
+
   Future<void> _restoreTablesState() async {
     final stateKey = _tablesStateKey;
     if (stateKey == null) {
@@ -765,7 +826,21 @@ class OrderProvider extends ChangeNotifier {
       return;
     }
 
+    final storedJornadaId = (decoded['jornadaId'] as num?)?.toInt();
     final tablesData = decoded['tables'];
+    if (storedJornadaId == null &&
+        _activeJornadaId != null &&
+        !_legacyStateHasActiveWork(tablesData)) {
+      await prefs.remove(stateKey);
+      return;
+    }
+    if (storedJornadaId != null &&
+        _activeJornadaId != null &&
+        storedJornadaId != _activeJornadaId) {
+      await prefs.remove(stateKey);
+      return;
+    }
+
     if (tablesData is List) {
       final restoredTables = tablesData
           .whereType<Map<String, dynamic>>()
@@ -783,6 +858,23 @@ class OrderProvider extends ChangeNotifier {
     }
   }
 
+  bool _legacyStateHasActiveWork(Object? tablesData) {
+    if (tablesData is! List) {
+      return false;
+    }
+
+    for (final raw in tablesData.whereType<Map<String, dynamic>>()) {
+      final status = raw['status']?.toString();
+      final guests = (raw['guests'] as num?)?.toInt() ?? 0;
+      final orders = raw['orders'];
+      final hasOrders = orders is List && orders.isNotEmpty;
+      if (hasOrders || guests > 0 || status == TableStatus.ocupado.name) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   Future<void> _persistTablesState() async {
     final stateKey = _tablesStateKey;
     if (stateKey == null) {
@@ -791,10 +883,24 @@ class OrderProvider extends ChangeNotifier {
 
     final prefs = await SharedPreferences.getInstance();
     final payload = {
+      'jornadaId': _activeJornadaId,
       'tables': _tables.map(_tableToJson).toList(),
       'currentTableBackendId': _currentTable?.backendId,
     };
     await prefs.setString(stateKey, jsonEncode(payload));
+  }
+
+  Future<void> _clearPersistedTablesForCurrentUser() async {
+    final stateKey = _tablesStateKey;
+    if (stateKey == null) {
+      return;
+    }
+    await _removeTablesState(stateKey);
+  }
+
+  Future<void> _removeTablesState(String stateKey) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(stateKey);
   }
 
   void _queuePersistTablesState() {
@@ -819,6 +925,7 @@ class OrderProvider extends ChangeNotifier {
       'status': table.status.name,
       'guests': table.guests,
       'tipAmount': table.tipAmount,
+      'lastClosedVentaId': table.lastClosedVentaId,
       'orders': table.orders.map(_orderItemToJson).toList(),
     };
   }
@@ -844,6 +951,7 @@ class OrderProvider extends ChangeNotifier {
       status: status,
       guests: (raw['guests'] as num?)?.toInt() ?? 0,
       tipAmount: (raw['tipAmount'] as num?)?.toDouble() ?? 0,
+      lastClosedVentaId: (raw['lastClosedVentaId'] as num?)?.toInt(),
       orders: orders,
     );
   }

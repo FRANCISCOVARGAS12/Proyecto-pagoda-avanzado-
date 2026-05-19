@@ -4,6 +4,43 @@
     
     @if (isLoading()) {
       <p>Verificando estado del sistema...</p>
+    } @else if (!superuserVerified()) {
+      @if (superuserConfigured()) {
+        <p>Introduce la contraseña de superusuario para abrir el panel.</p>
+      } @else {
+        <p>Configura la contraseña de superusuario inicial. Se guardará cifrada en el servidor.</p>
+      }
+      <form class="login-form" (ngSubmit)="submitSuperuser()">
+        <label for="super-password">Contraseña de superusuario</label>
+        <input
+          id="super-password"
+          type="password"
+          name="superPassword"
+          [(ngModel)]="superPassword"
+          placeholder="Contraseña maestra"
+          autocomplete="current-password"
+          [disabled]="isSubmitting()"
+          required
+        />
+
+        @if (!superuserConfigured()) {
+          <label for="super-password-confirm">Confirmar contraseña</label>
+          <input
+            id="super-password-confirm"
+            type="password"
+            name="superPasswordConfirm"
+            [(ngModel)]="superPasswordConfirm"
+            placeholder="Repite la contraseña"
+            autocomplete="new-password"
+            [disabled]="isSubmitting()"
+            required
+          />
+        }
+
+        <button type="submit" [disabled]="isSubmitting()">
+          {{ isSubmitting() ? 'Guardando...' : (superuserConfigured() ? 'Continuar' : 'Guardar contraseña') }}
+        </button>
+      </form>
     } @else if (needsSetup()) {
       <p>Registra el primer administrador.</p>
       <form class="login-form" (ngSubmit)="submit()">
