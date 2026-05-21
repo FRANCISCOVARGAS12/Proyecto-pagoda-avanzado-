@@ -5,6 +5,21 @@ import { AuthService, LoginResponse } from '../../core/auth/auth.service';
 import { ToastService } from '../../core/ui/toast.service';
 import { ApiClientService } from '../../core/api/api-client.service';
 
+const LOGIN_CAROUSEL_IMAGES = [
+  'WhatsApp Image 2026-05-19 at 11.58.13 AM(4).jpeg',
+  'WhatsApp Image 2026-05-19 at 11.58.13 AM(3).jpeg',
+  'WhatsApp Image 2026-05-19 at 11.58.12 AM(1).jpeg',
+  'WhatsApp Image 2026-05-19 at 11.58.12 AM(2).jpeg',
+  'WhatsApp Image 2026-05-19 at 11.58.12 AM(3).jpeg',
+  'WhatsApp Image 2026-05-19 at 11.58.12 AM.jpeg',
+  'WhatsApp Image 2026-05-19 at 11.58.13 AM.jpeg',
+  'WhatsApp Image 2026-05-19 at 11.58.13 AM(1).jpeg',
+  'WhatsApp Image 2026-05-19 at 11.58.13 AM(2).jpeg',
+].map((fileName) => ({
+  src: `imagenes/${fileName}`,
+  alt: '',
+}));
+
 @Component({
   selector: 'app-login',
   imports: [FormsModule],
@@ -26,6 +41,7 @@ export class Login {
   protected needsSetup = signal(false);
   protected isLoading = signal(true);
   protected isSubmitting = signal(false);
+  protected readonly carouselImages = LOGIN_CAROUSEL_IMAGES;
 
   constructor() {
     if (this.authService.isAuthenticated()) {

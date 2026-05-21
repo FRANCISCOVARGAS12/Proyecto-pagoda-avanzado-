@@ -1,113 +1,123 @@
 <section class="login-page">
-  <div class="login-card">
-    <h1>Pagoda</h1>
-    
-    @if (isLoading()) {
-      <p>Verificando estado del sistema...</p>
-    } @else if (!superuserVerified()) {
-      @if (superuserConfigured()) {
-        <p>Introduce la contraseña de superusuario para abrir el panel.</p>
-      } @else {
-        <p>Configura la contraseña de superusuario inicial. Se guardará cifrada en el servidor.</p>
-      }
-      <form class="login-form" (ngSubmit)="submitSuperuser()">
-        <label for="super-password">Contraseña de superusuario</label>
-        <input
-          id="super-password"
-          type="password"
-          name="superPassword"
-          [(ngModel)]="superPassword"
-          placeholder="Contraseña maestra"
-          autocomplete="current-password"
-          [disabled]="isSubmitting()"
-          required
-        />
+  <div class="login-layout">
+    <aside class="login-carousel" aria-hidden="true">
+      <div class="carousel-track">
+        @for (image of carouselImages; track image.src) {
+          <img [src]="image.src" [alt]="image.alt" />
+        }
+      </div>
+    </aside>
 
-        @if (!superuserConfigured()) {
-          <label for="super-password-confirm">Confirmar contraseña</label>
+    <div class="login-card">
+      <h1>Pagoda</h1>
+      
+      @if (isLoading()) {
+        <p>Verificando estado del sistema...</p>
+      } @else if (!superuserVerified()) {
+        @if (superuserConfigured()) {
+          <p>Introduce la contraseña de superusuario para abrir el panel.</p>
+        } @else {
+          <p>Configura la contraseña de superusuario inicial. Se guardará cifrada en el servidor.</p>
+        }
+        <form class="login-form" (ngSubmit)="submitSuperuser()">
+          <label for="super-password">Contraseña de superusuario</label>
           <input
-            id="super-password-confirm"
+            id="super-password"
             type="password"
-            name="superPasswordConfirm"
-            [(ngModel)]="superPasswordConfirm"
-            placeholder="Repite la contraseña"
-            autocomplete="new-password"
+            name="superPassword"
+            [(ngModel)]="superPassword"
+            placeholder="Contraseña maestra"
+            autocomplete="current-password"
             [disabled]="isSubmitting()"
             required
           />
-        }
 
-        <button type="submit" [disabled]="isSubmitting()">
-          {{ isSubmitting() ? 'Guardando...' : (superuserConfigured() ? 'Continuar' : 'Guardar contraseña') }}
-        </button>
-      </form>
-    } @else if (needsSetup()) {
-      <p>Registra el primer administrador.</p>
-      <form class="login-form" (ngSubmit)="submit()">
-        <label for="name">Nombre del Administrador</label>
-        <input
-          id="name"
-          type="text"
-          name="name"
-          [(ngModel)]="name"
-          placeholder="Ej: Juan García"
-          [disabled]="isSubmitting()"
-          required
-        />
+          @if (!superuserConfigured()) {
+            <label for="super-password-confirm">Confirmar contraseña</label>
+            <input
+              id="super-password-confirm"
+              type="password"
+              name="superPasswordConfirm"
+              [(ngModel)]="superPasswordConfirm"
+              placeholder="Repite la contraseña"
+              autocomplete="new-password"
+              [disabled]="isSubmitting()"
+              required
+            />
+          }
 
-        <label for="pin">PIN (6 dígitos)</label>
-        <input
-          id="pin"
-          type="password"
-          name="pin"
-          [(ngModel)]="pin"
-          placeholder="6 digitos"
-          minlength="6"
-          maxlength="6"
-          pattern="[0-9]{6}"
-          inputmode="numeric"
-          [disabled]="isSubmitting()"
-          required
-        />
+          <button type="submit" [disabled]="isSubmitting()">
+            {{ isSubmitting() ? 'Guardando...' : (superuserConfigured() ? 'Continuar' : 'Guardar contraseña') }}
+          </button>
+        </form>
+      } @else if (needsSetup()) {
+        <p>Registra el primer administrador.</p>
+        <form class="login-form" (ngSubmit)="submit()">
+          <label for="name">Nombre del Administrador</label>
+          <input
+            id="name"
+            type="text"
+            name="name"
+            [(ngModel)]="name"
+            placeholder="Ej: Juan García"
+            [disabled]="isSubmitting()"
+            required
+          />
 
-        <button type="submit" [disabled]="isSubmitting()">
-          {{ isSubmitting() ? 'Registrando...' : 'Registrar y Entrar' }}
-        </button>
-      </form>
-    } @else {
-      <form class="login-form" (ngSubmit)="submit()">
-        <label for="name">Nombre</label>
-        <input
-          id="name"
-          type="text"
-          name="name"
-          [(ngModel)]="name"
-          placeholder="Ej: Charbel"
-          autocomplete="username"
-          [disabled]="isSubmitting()"
-          required
-        />
+          <label for="pin">PIN (6 dígitos)</label>
+          <input
+            id="pin"
+            type="password"
+            name="pin"
+            [(ngModel)]="pin"
+            placeholder="6 digitos"
+            minlength="6"
+            maxlength="6"
+            pattern="[0-9]{6}"
+            inputmode="numeric"
+            [disabled]="isSubmitting()"
+            required
+          />
 
-        <label for="pin">PIN</label>
-        <input
-          id="pin"
-          type="password"
-          name="pin"
-          [(ngModel)]="pin"
-          placeholder="6 digitos"
-          minlength="6"
-          maxlength="6"
-          pattern="[0-9]{6}"
-          inputmode="numeric"
-          autocomplete="current-password"
-          [disabled]="isSubmitting()"
-          required
-        />
+          <button type="submit" [disabled]="isSubmitting()">
+            {{ isSubmitting() ? 'Registrando...' : 'Registrar y Entrar' }}
+          </button>
+        </form>
+      } @else {
+        <form class="login-form" (ngSubmit)="submit()">
+          <label for="name">Nombre</label>
+          <input
+            id="name"
+            type="text"
+            name="name"
+            [(ngModel)]="name"
+            placeholder="Ej: Charbel"
+            autocomplete="username"
+            [disabled]="isSubmitting()"
+            required
+          />
 
-        <button type="submit" [disabled]="isSubmitting()">
-          {{ isSubmitting() ? 'Entrando...' : 'Entrar' }}
-        </button>
-      </form>
-    }
+          <label for="pin">PIN</label>
+          <input
+            id="pin"
+            type="password"
+            name="pin"
+            [(ngModel)]="pin"
+            placeholder="6 digitos"
+            minlength="6"
+            maxlength="6"
+            pattern="[0-9]{6}"
+            inputmode="numeric"
+            autocomplete="current-password"
+            [disabled]="isSubmitting()"
+            required
+          />
+
+          <button type="submit" [disabled]="isSubmitting()">
+            {{ isSubmitting() ? 'Entrando...' : 'Entrar' }}
+          </button>
+        </form>
+      }
+    </div>
   </div>
 </section>
