@@ -9,6 +9,9 @@ describe('App', () => {
     localStorage.setItem('pagoda-user', 'Administrador');
     localStorage.setItem('pagoda-token', 'test-token');
     localStorage.setItem('pagoda-user-id', '1');
+    localStorage.setItem('pagoda-role', 'ADMIN');
+    sessionStorage.setItem('pagoda-superuser-token', 'test-superuser-token');
+    sessionStorage.setItem('pagoda-superuser-expires', '2099-01-01T00:00:00.000Z');
 
     await TestBed.configureTestingModule({
       imports: [App],
@@ -21,6 +24,9 @@ describe('App', () => {
     localStorage.removeItem('pagoda-user');
     localStorage.removeItem('pagoda-token');
     localStorage.removeItem('pagoda-user-id');
+    localStorage.removeItem('pagoda-role');
+    sessionStorage.removeItem('pagoda-superuser-token');
+    sessionStorage.removeItem('pagoda-superuser-expires');
   });
 
   it('should create the app', () => {

@@ -1,4 +1,4 @@
-import { Component, effect, inject, OnDestroy } from '@angular/core';
+import { ChangeDetectorRef, Component, effect, inject, OnDestroy } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { ApiClientService } from './app/core/api/api-client.service';
@@ -84,6 +84,7 @@ export class App implements OnDestroy {
   private readonly router = inject(Router);
   private readonly toastService = inject(ToastService);
   private readonly webSocketService = inject(WebSocketService);
+  private readonly changeDetectorRef = inject(ChangeDetectorRef);
   private jornadaTopicSubscribed = false;
   private inactivityTimer: ReturnType<typeof setTimeout> | null = null;
   private activityListenersRegistered = false;
@@ -119,6 +120,13 @@ export class App implements OnDestroy {
         return;
       }
       this.startInactivityTracking(inactivityMinutes);
+    });
+
+    effect(() => {
+      const jornadaAbierta = this.jornadaAbierta();
+      if (!jornadaAbierta && this.closeJornadaDialogVisible && this.closeJornadaSaving) {
+        this.resetCloseJornadaDialog();
+      }
     });
   }
 
@@ -201,11 +209,7 @@ export class App implements OnDestroy {
 
       const result = await this.jornadaService.cerrarJornada();
       if (result.ok) {
-        this.resetCloseJornadaDialog();
-        this.toastService.success(result.message);
-        window.setTimeout(() => {
-          void this.generateCloseSummaryPdf(jornadaAbierta);
-        }, 0);
+        this.finishCloseJornadaSuccess(jornadaAbierta, result.message);
         return;
       }
 
@@ -224,6 +228,32 @@ export class App implements OnDestroy {
     this.closeJornadaPinStep = false;
     this.closeJornadaPin = '';
     this.closeJornadaSaving = false;
+  }
+
+  private finishCloseJornadaSuccess(jornada: Jornada, message: string): void {
+    this.resetCloseJornadaDialog();
+    this.changeDetectorRef.detectChanges();
+    this.toastService.success(message);
+    this.scheduleCloseSummaryPdf(jornada);
+  }
+
+  private scheduleCloseSummaryPdf(jornada: Jornada): void {
+    if (!this.adminSettingsService.snapshot().printSummaryOnClose) {
+      return;
+    }
+
+    const generate = (): void => {
+      window.setTimeout(() => {
+        void this.generateCloseSummaryPdf(jornada);
+      }, 80);
+    };
+
+    if (typeof window.requestAnimationFrame === 'function') {
+      window.requestAnimationFrame(generate);
+      return;
+    }
+
+    generate();
   }
 
   protected logout(): void {
