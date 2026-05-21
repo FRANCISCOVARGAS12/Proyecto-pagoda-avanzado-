@@ -6,10 +6,15 @@
           <img [src]="image.src" [alt]="image.alt" />
         }
       </div>
+      <div class="carousel-copy">
+        <strong>PAGODA</strong>
+        <span>Cocina Asiática</span>
+      </div>
     </aside>
 
     <div class="login-card">
-      <h1>Pagoda</h1>
+      <p class="login-kicker">Panel administrativo</p>
+      <h1>Acceso Pagoda</h1>
       
       @if (isLoading()) {
         <p>Verificando estado del sistema...</p>
@@ -70,7 +75,7 @@
             type="password"
             name="pin"
             [(ngModel)]="pin"
-            placeholder="6 digitos"
+            placeholder="6 dígitos"
             minlength="6"
             maxlength="6"
             pattern="[0-9]{6}"
@@ -103,7 +108,7 @@
             type="password"
             name="pin"
             [(ngModel)]="pin"
-            placeholder="6 digitos"
+            placeholder="6 dígitos"
             minlength="6"
             maxlength="6"
             pattern="[0-9]{6}"

@@ -14,19 +14,19 @@
   justify-content: space-between;
   gap: 0.75rem;
   padding: 0.8rem 0.95rem;
-  border-radius: 0.8rem;
-  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
   background: var(--card);
   color: var(--card-foreground);
-  box-shadow: 0 8px 20px rgb(15 23 42 / 18%);
+  box-shadow: var(--surface-shadow);
 }
 
 .toast.success {
-  border-color: rgb(22 163 74 / 35%);
+  border-color: color-mix(in srgb, var(--success) 35%, var(--border));
 }
 
 .toast.error {
-  border-color: rgb(220 38 38 / 35%);
+  border-color: color-mix(in srgb, var(--destructive) 35%, var(--border));
 }
 
 .toast p {
@@ -42,4 +42,6 @@
   cursor: pointer;
   font-size: 0.95rem;
   line-height: 1;
+  min-width: 44px;
+  min-height: 44px;
 }

@@ -454,6 +454,17 @@ export class Ventas implements OnInit, OnDestroy {
     );
   }
 
+  protected shouldShowFondoInicial(): boolean {
+    return (
+      this.jornadaAbierta &&
+      this.jornadaAbiertaId !== null &&
+      this.appliedJornadaId !== null &&
+      this.appliedJornadaId !== 'all' &&
+      this.appliedJornadaId === this.jornadaAbiertaId &&
+      !this.appliedUseDateRange
+    );
+  }
+
   protected jornadaLabel(jornada: JornadaApi): string {
     const etiqueta = this.jornadaTurnLabel(jornada);
     const fecha = this.jornadaDateKey(jornada);
@@ -648,7 +659,6 @@ export class Ventas implements OnInit, OnDestroy {
     drawHeader();
 
     addSectionTitle('Resumen ejecutivo');
-    addKeyValue('Fondo inicial', this.fmt(this.fondoInicial));
     addKeyValue('Total efectivo', this.fmt(this.totalEfectivo));
     addKeyValue('Total tarjeta bruto', this.fmt(this.totalTarjetaBruto));
     addKeyValue('Total tarjeta neto', this.fmt(this.totalTarjetaNeto));
@@ -832,7 +842,7 @@ export class Ventas implements OnInit, OnDestroy {
       this.totalTarjetaBruto = this.roundCurrency(totalTarjetaBruto);
       this.totalTarjetaNeto = this.roundCurrency(totalTarjetaNeto);
       this.updateCommissionFromOrders(orders);
-      this.totalVentas = this.roundCurrency(fondoInicial + this.totalEfectivo + this.totalTarjetaNeto);
+      this.totalVentas = this.roundCurrency(this.totalEfectivo + this.totalTarjetaNeto);
       if (jornadasConError.length || pedidosConError.length) {
         const errores: string[] = [];
         if (jornadasConError.length) {
@@ -933,7 +943,7 @@ export class Ventas implements OnInit, OnDestroy {
     this.totalEfectivo = 0;
     this.totalTarjetaBruto = 0;
     this.totalTarjetaNeto = 0;
-    this.totalVentas = this.roundCurrency(this.fondoInicial);
+    this.totalVentas = 0;
   }
 
   private withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> {

@@ -3,6 +3,7 @@ package com.pagoda.pagoda_api.service;
 import com.pagoda.pagoda_api.entity.reportes.ResumenPlatillosDiario;
 import com.pagoda.pagoda_api.repository.reportes.ResumenPlatillosRepository;
 import com.pagoda.pagoda_api.repository.ventas.ItemVentaRepository;
+import com.pagoda.pagoda_api.repository.ventas.PagoRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
@@ -21,6 +22,7 @@ public class ResumenPlatillosDiarioService {
 
     private final ResumenPlatillosRepository repository;
     private final ItemVentaRepository itemVentaRepository;
+    private final PagoRepository pagoRepository;
 
     public List<ResumenPlatillosDiario> listarPorJornada(Integer jornadaId) {
         return repository.findByJornadaId(jornadaId);
@@ -51,7 +53,7 @@ public class ResumenPlatillosDiarioService {
     }
 
     public List<Map<String, Object>> obtenerFlujoVentas(LocalDate inicio, LocalDate fin) {
-        return itemVentaRepository.findFlujoVentasByRango(inicio, fin).stream().map(row -> {
+        return pagoRepository.findFlujoVentasNetasByRango(inicio, fin).stream().map(row -> {
             Map<String, Object> map = new LinkedHashMap<>();
             map.put("fecha", row[0] == null ? null : row[0].toString());
             map.put("totalTickets", row[1] instanceof Number ? ((Number) row[1]).intValue() : 0);

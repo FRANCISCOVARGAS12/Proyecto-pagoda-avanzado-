@@ -219,7 +219,7 @@ export class Top5Component implements OnInit {
   }
 
   fmt(n: number): string {
-    return `$${n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+    return `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   }
 
   formatShortDate(iso: string): string {

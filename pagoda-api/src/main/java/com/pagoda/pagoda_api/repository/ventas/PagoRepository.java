@@ -58,6 +58,37 @@ public interface PagoRepository extends JpaRepository<Pago, Integer> {
                                        @Param("fin") LocalDate fin);
 
     @Query(value = """
+            WITH pagos_fecha AS (
+                SELECT
+                    COALESCE((
+                        CASE
+                            WHEN j.hora_apertura IS NOT NULL
+                              AND CAST(j.hora_apertura AS time) < TIME '06:00:00'
+                              AND j.fecha = CAST(j.hora_apertura AS date)
+                            THEN CAST(j.fecha - INTERVAL '1 day' AS date)
+                            ELSE j.fecha
+                        END
+                    ), CAST(v.fecha_cierre AS date), CAST(v.fecha_creacion AS date)) AS fecha,
+                    v.id AS venta_id,
+                    COALESCE(p.monto_neto, p.monto, 0) AS monto_neto
+                FROM ventas.pagos p
+                JOIN ventas.ventas v ON p.venta_id = v.id
+                LEFT JOIN operacion.jornadas j ON v.jornada_id = j.id
+                WHERE v.fecha_cierre IS NOT NULL
+            )
+            SELECT
+                fecha,
+                COUNT(DISTINCT venta_id),
+                COALESCE(SUM(monto_neto), 0)
+            FROM pagos_fecha
+            WHERE fecha BETWEEN :inicio AND :fin
+            GROUP BY fecha
+            ORDER BY fecha
+            """, nativeQuery = true)
+    List<Object[]> findFlujoVentasNetasByRango(@Param("inicio") LocalDate inicio,
+                                               @Param("fin") LocalDate fin);
+
+    @Query(value = """
             WITH params AS (
                 SELECT COALESCE(MAX(comision_bancaria), 0) AS comision_bancaria
                 FROM operacion.parametros_local

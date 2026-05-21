@@ -109,10 +109,12 @@
   }
 
   <div class="summary-grid">
-    <article class="summary-card">
-      <p>Fondo Inicial</p>
-      <strong>{{ fmt(fondoInicial) }}</strong>
-    </article>
+    @if (shouldShowFondoInicial()) {
+      <article class="summary-card">
+        <p>Fondo Inicial</p>
+        <strong>{{ fmt(fondoInicial) }}</strong>
+      </article>
+    }
     <article class="summary-card">
       <p>Total Efectivo</p>
       <strong>{{ fmt(totalEfectivo) }}</strong>

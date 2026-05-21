@@ -1,7 +1,6 @@
 .subtitle {
-  margin-top: -1rem;
+  margin-top: -0.7rem;
   margin-bottom: 1.25rem;
-  color: var(--muted-foreground);
 }
 
 .page-head {
@@ -9,20 +8,21 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 1rem;
-  margin-bottom: 1.25rem;
+  margin-bottom: 1.15rem;
 }
 
 .filter-tabs {
   display: inline-flex;
-  gap: 0.5rem;
+  gap: 0.35rem;
   margin-bottom: 1rem;
-  padding: 0.3rem;
+  padding: 0.28rem;
   border: 1px solid var(--border);
   border-radius: 999px;
-  background: color-mix(in srgb, var(--muted) 28%, transparent);
+  background: color-mix(in srgb, var(--muted) 30%, transparent);
 }
 
 .filter-tabs button {
+  min-height: 40px;
   border: 0;
   border-radius: 999px;
   background: transparent;
@@ -31,7 +31,7 @@
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
-  font-weight: 700;
+  font-weight: 800;
   padding: 0.5rem 0.9rem;
 }
 
@@ -42,37 +42,62 @@
 
 .filter-tabs span {
   border-radius: 999px;
-  background: color-mix(in srgb, var(--card) 55%, transparent);
+  background: color-mix(in srgb, var(--card) 62%, transparent);
+  color: inherit;
   font-size: 0.72rem;
   padding: 0.08rem 0.45rem;
 }
 
-.primary-btn {
-  border: 0;
-  border-radius: 0.65rem;
-  background: var(--primary);
-  color: var(--primary-foreground);
-  padding: 0.75rem 1.2rem;
+.primary-btn,
+.secondary-btn {
+  min-height: 44px;
+  border-radius: var(--radius);
+  padding: 0.75rem 1.05rem;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 0.5rem;
   cursor: pointer;
-  font-weight: 600;
+  font-weight: 800;
+  transition:
+    transform 0.2s ease,
+    opacity 0.2s ease;
 }
 
-.primary-btn:hover {
-  opacity: 0.92;
+.primary-btn {
+  border: 0;
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.secondary-btn {
+  flex: 1;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--foreground);
+}
+
+.primary-btn:hover:enabled,
+.secondary-btn:hover:enabled {
+  opacity: 0.94;
+  transform: translateY(-1px);
 }
 
 .table-shell {
   border: 1px solid var(--border);
-  border-radius: 0.75rem;
+  border-radius: var(--radius);
+  background: var(--card);
   overflow: hidden;
+  box-shadow: var(--surface-shadow);
 }
 
 table {
   width: 100%;
   border-collapse: collapse;
+}
+
+thead tr {
+  background: color-mix(in srgb, var(--muted) 48%, transparent);
 }
 
 th,
@@ -82,19 +107,26 @@ td {
   text-align: left;
 }
 
+th {
+  color: var(--muted-foreground);
+  font-size: 0.76rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 .actions-col {
   text-align: center;
   width: 220px;
 }
 
 .status-badge {
-  border: 1px solid color-mix(in srgb, #22c55e 30%, var(--border));
+  border: 1px solid color-mix(in srgb, var(--sage) 30%, var(--border));
   border-radius: 999px;
-  background: color-mix(in srgb, #22c55e 12%, transparent);
-  color: #16a34a;
+  background: color-mix(in srgb, var(--sage) 12%, transparent);
+  color: var(--success);
   display: inline-flex;
   font-size: 0.74rem;
-  font-weight: 700;
+  font-weight: 800;
   padding: 0.18rem 0.6rem;
 }
 
@@ -119,27 +151,29 @@ tr:last-child td {
   padding: 0.2rem 0.6rem;
   font-size: 0.78rem;
   text-transform: capitalize;
-  background: color-mix(in srgb, #22c55e 20%, transparent);
+  background: color-mix(in srgb, var(--sage) 18%, transparent);
   color: var(--foreground);
 }
 
 .badge.pending {
-  background: color-mix(in srgb, #f59e0b 20%, transparent);
+  background: color-mix(in srgb, var(--warning) 20%, transparent);
 }
 
 .badge.inactivo {
-  background: color-mix(in srgb, #ef4444 16%, transparent);
+  background: color-mix(in srgb, var(--destructive) 14%, transparent);
 }
 
 .action-btn {
+  min-height: 36px;
   border: 1px solid transparent;
-  border-radius: 0.55rem;
+  border-radius: var(--radius);
   background: color-mix(in srgb, var(--muted) 40%, transparent);
   color: var(--foreground);
   padding: 0.45rem 0.75rem;
   font-size: 0.82rem;
+  font-weight: 800;
   cursor: pointer;
-  margin: 0 0.25rem;
+  margin: 0.2rem;
 }
 
 .action-btn.danger {
@@ -153,13 +187,13 @@ tr:last-child td {
 }
 
 .action-btn.success {
-  border-color: color-mix(in srgb, #22c55e 35%, transparent);
-  background: color-mix(in srgb, #22c55e 13%, transparent);
-  color: #16a34a;
+  border-color: color-mix(in srgb, var(--sage) 35%, transparent);
+  background: color-mix(in srgb, var(--sage) 13%, transparent);
+  color: var(--success);
 }
 
 .action-btn.success:hover:enabled {
-  background: color-mix(in srgb, #22c55e 19%, transparent);
+  background: color-mix(in srgb, var(--sage) 19%, transparent);
 }
 
 .action-btn:disabled {
@@ -171,45 +205,44 @@ tr:last-child td {
   position: fixed;
   inset: 0;
   z-index: 100;
-  background: rgb(0 0 0 / 60%);
-  backdrop-filter: blur(4px);
+  background: rgb(18 12 9 / 62%);
+  backdrop-filter: blur(5px);
   display: grid;
   place-items: center;
+  padding: 1rem;
 }
 
 .dialog-card {
   width: min(480px, 92vw);
   background: var(--card);
   color: var(--card-foreground);
-  border: 1px solid var(--border);
-  border-radius: 0.85rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
+  border-radius: var(--radius);
   padding: 1.4rem;
-  box-shadow: 0 20px 45px rgb(0 0 0 / 30%);
+  box-shadow: 0 20px 45px rgb(35 20 11 / 24%);
 }
 
 .dialog-card.danger-dialog {
-  border-color: color-mix(in srgb, var(--destructive) 28%, var(--border));
-  background:
-    linear-gradient(145deg, color-mix(in srgb, var(--card) 94%, var(--destructive) 6%), var(--card));
+  border-color: color-mix(in srgb, var(--destructive) 30%, var(--border));
 }
 
 .dialog-card.protected-dialog {
-  border-color: color-mix(in srgb, var(--primary) 28%, var(--border));
-  background:
-    radial-gradient(circle at top left, color-mix(in srgb, var(--primary) 12%, transparent), transparent 45%),
-    var(--card);
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
 }
 
 .dialog-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 1rem;
   margin-bottom: 1rem;
 }
 
 .dialog-head h2 {
   margin: 0;
-  font-size: 1.15rem;
+  font-family: var(--font-display);
+  font-size: 1.42rem;
+  font-weight: 500;
 }
 
 .dialog-eyebrow {
@@ -217,18 +250,18 @@ tr:last-child td {
   color: var(--destructive);
   font-size: 0.72rem;
   font-weight: 800;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
 .protected-dialog .dialog-eyebrow {
-  color: var(--primary);
+  color: var(--secondary);
 }
 
 .dialog-copy {
   margin: 0 0 1.1rem;
   color: var(--muted-foreground);
-  line-height: 1.55;
+  line-height: 1.6;
 }
 
 .dialog-copy strong {
@@ -236,11 +269,12 @@ tr:last-child td {
 }
 
 .close-btn {
-  width: 34px;
-  height: 34px;
-  border: 0;
-  border-radius: 0.5rem;
+  width: 44px;
+  height: 44px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
   background: transparent;
+  color: var(--foreground);
   cursor: pointer;
 }
 
@@ -255,22 +289,23 @@ tr:last-child td {
 
 .dialog-form label {
   font-size: 0.9rem;
-  font-weight: 500;
+  font-weight: 700;
 }
 
 .dialog-form input,
 .dialog-form select {
+  min-height: 44px;
   border: 1px solid var(--border);
-  border-radius: 0.65rem;
-  background: var(--background);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--background) 78%, white 22%);
   color: var(--foreground);
-  padding: 0.7rem 0.85rem;
+  padding: 0.72rem 0.85rem;
 }
 
 .dialog-form input:focus,
 .dialog-form select:focus {
-  border-color: color-mix(in srgb, var(--primary) 65%, var(--border));
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 16%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 65%, var(--border));
+  box-shadow: var(--focus-ring);
   outline: none;
 }
 
@@ -286,26 +321,12 @@ tr:last-child td {
   gap: 0.75rem;
 }
 
-.secondary-btn {
-  flex: 1;
-  border: 1px solid var(--border);
-  border-radius: 0.65rem;
-  background: var(--muted);
-  color: var(--foreground);
-  padding: 0.75rem 1rem;
-  cursor: pointer;
-  font-weight: 600;
-}
-
-.secondary-btn:hover {
-  opacity: 0.92;
-}
-
 .primary-btn:disabled,
 .secondary-btn:disabled,
 .close-btn:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+  transform: none;
 }
 
 .danger-primary {
@@ -319,15 +340,26 @@ tr:last-child td {
 
 .dialog-actions .primary-btn {
   flex: 1;
-  justify-content: center;
 }
 
 @media (width <= 768px) {
-  .page-head {
-    flex-direction: column;
-  }
-
+  .page-head,
   .dialog-actions {
     flex-direction: column;
+    align-items: stretch;
+  }
+
+  .filter-tabs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    border-radius: var(--radius);
+  }
+
+  .table-shell {
+    overflow-x: auto;
+  }
+
+  table {
+    min-width: 660px;
   }
 }
